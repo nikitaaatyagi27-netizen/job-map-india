@@ -105,9 +105,10 @@ function Runner({ config }) {
         opacity: 0.7,
       }}
       animate={{ x: ['calc(-60px)', 'calc(100vw + 60px)'] }}
+      initial={{ x: `calc(${Math.random() * 80}vw)` }}
       transition={{
         duration: config.duration,
-        delay: config.delay,
+        delay: 0,
         repeat: Infinity,
         ease: 'linear',
         repeatDelay: 0
