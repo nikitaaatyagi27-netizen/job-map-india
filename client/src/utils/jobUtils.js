@@ -25,7 +25,7 @@ export const TREND_ICON = {
 };
 
 // Only strong, unambiguous title signals — "Jr." / "Junior" deliberately excluded
-const TITLE_SENIOR_RE  = /\bsenior\b|\bsr[\.\s]|\blead\b|\bstaff\b|\bprincipal\b|\barchitect\b|\bhead\s+of\b|\bmanager\b|\bdirector\b|\bvp\b|vice\s*president/i;
+const TITLE_SENIOR_RE  = /\bsenior\b|\bsr[.\s]|\blead\b|\bstaff\b|\bprincipal\b|\barchitect\b|\bhead\s+of\b|\bmanager\b|\bdirector\b|\bvp\b|vice\s*president/i;
 const TITLE_FRESHER_RE = /\bfresher\b|\btrainee\b|\bintern(?:ship)?\b|\bentry[\s-]?level\b|\bgraduate\b|0[-–][12]\s*(?:year|yr)/i;
 
 const RANGE_RE = /\b(\d+)\s*(?:[-–]|to)\s*(\d+)\s*(?:year|yr)/i;

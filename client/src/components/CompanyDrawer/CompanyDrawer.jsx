@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import {
-  Box, Chip, Divider, Drawer, IconButton, Tooltip, Typography
+  Box, Chip, Divider, Drawer, Tooltip, Typography
 } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { getCompanyInitials } from '../../utils/companyLogoFallback';
