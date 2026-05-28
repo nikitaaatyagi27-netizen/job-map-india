@@ -16,6 +16,7 @@ import SearchSummary from './components/SearchSummary/SearchSummary';
 import CompanyDrawer from './components/CompanyDrawer/CompanyDrawer';
 import SavedJobsDrawer from './components/SavedJobsDrawer/SavedJobsDrawer';
 import AuthModal from './components/AuthModal/AuthModal';
+import SearchLoader from './components/SearchLoader/SearchLoader';
 import { useAuth } from './context/AuthContext';
 import { getRoleLevel } from './utils/jobUtils';
 import {
@@ -316,23 +317,7 @@ const App = () => {
   }
 
   if (searchLoading) {
-    return (
-      <Box sx={{
-        height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg,#1a237e 0%,#1565c0 50%,#0288d1 100%)', gap: 3,
-      }}>
-        <CircularProgress sx={{ color: 'white' }} size={56} />
-        <Typography variant="h6" sx={{ color: 'white', fontWeight: 500 }}>
-          Finding companies hiring for your skills...
-        </Typography>
-        {resumeData._restored && (
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-            Resuming your last search
-          </Typography>
-        )}
-      </Box>
-    );
+    return <SearchLoader resumeData={resumeData} />;
   }
 
   // ── Main render ──────────────────────────────────────────────────────────────
