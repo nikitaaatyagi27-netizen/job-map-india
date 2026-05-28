@@ -98,11 +98,11 @@ function Runner({ config }) {
   return (
     <motion.div
       style={{
-        position: 'absolute',
+        position: 'fixed',
         top: config.top,
         left: 0,
-        zIndex: 1,
-        opacity: 0.45,
+        zIndex: 5,
+        opacity: 0.7,
       }}
       animate={{ x: ['calc(-60px)', 'calc(100vw + 60px)'] }}
       transition={{
@@ -137,8 +137,8 @@ function Runner({ config }) {
 export default function RaceAnimation() {
   return (
     <Box sx={{
-      position: 'absolute', inset: 0, overflow: 'hidden',
-      pointerEvents: 'none', zIndex: 0
+      position: 'fixed', inset: 0, overflow: 'hidden',
+      pointerEvents: 'none', zIndex: 5
     }}>
       {RUNNER_CONFIGS.map((config, i) => (
         <Runner key={i} config={config} />
