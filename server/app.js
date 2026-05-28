@@ -14,8 +14,21 @@ const app = express();
 
 app.set("trust proxy", 1);
 
+const ALLOWED_ORIGINS = [
+  process.env.APP_URL || "http://localhost:3000",
+  "http://localhost:3000",
+];
+
 app.use(cors({
-  origin: process.env.APP_URL || "http://localhost:3000",
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Render health checks)
+    if (!origin) return callback(null, true);
+    // Allow any vercel.app subdomain (covers preview deployments)
+    if (origin.endsWith(".vercel.app") || ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error("Not allowed by CORS"));
+  },
   credentials: true
 }));
 app.use(express.json());
