@@ -1,0 +1,20 @@
+/* client/src/index.css */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow: hidden;
+  font-family: 'Roboto', sans-serif;
+  background-color: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.leaflet-container {
+  background: #0f172a !important;
+}
