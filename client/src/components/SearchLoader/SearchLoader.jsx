@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
+import RaceAnimation from './RaceAnimation';
 
 // City positions as % of the SVG viewBox (roughly matching India map)
 const CITIES = [
@@ -67,6 +68,9 @@ export default function SearchLoader({ resumeData }) {
       background: 'linear-gradient(135deg, #060b18 0%, #0b1535 50%, #080f20 100%)',
       position: 'relative', overflow: 'hidden', gap: 2
     }}>
+      {/* Running characters */}
+      <RaceAnimation />
+
       {/* Background glow orbs */}
       <motion.div
         animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
