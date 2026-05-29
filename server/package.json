@@ -37,6 +37,8 @@
     "inspect:status": "node scripts/inspectIngestionStatus.js",
     "register:curated-ats": "node scripts/bulkRegisterCuratedATS.js",
     "fetch:ats-only": "node scripts/fetchAtsOnly.js",
+    "verify:jobs": "node scripts/verifyJobs.js",
+    "verify:jobs:dry": "node scripts/verifyJobs.js --dry-run",
     "discover:youtube": "node scripts/discoverYoutubeHiring.js",
     "test": "jest --runInBand"
   },

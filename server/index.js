@@ -16,6 +16,7 @@ const { backfillAtsProviders }  = require("./services/atsProviderBackfillService
 const { runAlertDigest }        = require("./services/jobAlertService");
 const { discoverAndIngestWorkdayBoards } = require("./services/workdayDiscoveryService");
 const { runYoutubeHiringDiscovery }      = require("./services/youtubeHiringService");
+const { runJobVerification }             = require("./services/jobVerificationService");
 
 // ─── Ingestion helpers ─────────────────────────────────────────────────────────
 
@@ -144,6 +145,16 @@ async function bootstrap() {
       await markStaleJobs();
     } catch (error) {
       console.error("[CRON] Staleness sweep failed:", error.message);
+    }
+  });
+
+  // Cron: nightly job verification at 3am UTC — checks aggregator jobs for dead links
+  cron.schedule("0 3 * * *", async () => {
+    try {
+      const result = await runJobVerification();
+      console.log(`[CRON] Job verification done | checked: ${result.checked} | marked inactive: ${result.markedInactive}`);
+    } catch (error) {
+      console.error("[CRON] Job verification failed:", error.message);
     }
   });
 
