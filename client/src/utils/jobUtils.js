@@ -65,7 +65,7 @@ export function detectExperience(title) {
 // Returns the effective experience level for a role object.
 // Uses server-stored value first; falls back to title heuristic.
 export function getRoleLevel(role) {
-  if (!role) return null;
+  if (!role) return 'mid';
 
   if (role.yearsMin != null) {
     const fromYears = levelFromYears(
@@ -78,7 +78,7 @@ export function getRoleLevel(role) {
   return detectExperienceFromText(role.description)
     || role.experienceLevel
     || detectExperience(role.title)
-    || null;
+    || 'mid'; // default fallback — always show in at least one category
 }
 
 export function daysAgo(dateStr) {
