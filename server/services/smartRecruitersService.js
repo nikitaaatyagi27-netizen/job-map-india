@@ -125,7 +125,7 @@ async function fetchSmartRecruitersPublicPostings() {
           title: job.name,
           company: company._id,
           location,
-          applyLink: job.ref || null,
+          applyLink: job.postingUrl || job.applyUrl || null,
           description: null,
           source: "smartrecruiters",
           postedDate: job.releasedDate ? new Date(job.releasedDate) : null,
@@ -224,7 +224,7 @@ async function fetchSmartRecruitersJobs() {
             title: job.name,
             company: company._id,
             location,
-            applyLink: job.ref || job.applyUrl || job.jobAdUrl || null,
+            applyLink: job.postingUrl || job.applyUrl || job.jobAdUrl || null,
             description:
               job.jobAd?.jobDescription ||
               job.jobAd?.companyDescription ||
