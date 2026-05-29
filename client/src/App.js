@@ -163,7 +163,10 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (childClicked) setSelectedCompany(childClicked);
+    if (childClicked) {
+      setSelectedCompany(childClicked);
+      setChildClicked(null); // reset so same company can be clicked again
+    }
   }, [childClicked]);
 
   useEffect(() => {
