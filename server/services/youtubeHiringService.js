@@ -35,7 +35,9 @@ function isFresherDrive(title, description) {
 // ─── Channel config ───────────────────────────────────────────────────────────
 // Add more channels here over time. handle = YouTube @handle or channel ID.
 const WATCHED_CHANNELS = [
-  { handle: "LokeshBagora", label: "Lokesh Bagora" }
+  { handle: "LokeshBagora", label: "Lokesh Bagora" },
+  { handle: "knacademy20", label: "KN Academy" },
+  { handle: "ashishcode",  label: "Ashish Code" }
 ];
 
 const MAX_VIDEOS_PER_CHANNEL = 30;  // how many recent videos to scan per run
@@ -153,13 +155,34 @@ function extractUrls(text) {
 //   "Accenture 2026"      → "Accenture"
 //   "Wipro 2026 2025"     → "Wipro"
 //   "Concentrix Direct Test" → "Concentrix"
+// Phrases that are never real company names — if the cleaned result is one of
+// these (or starts with one), reject it.
+const NON_COMPANY_PHRASES = [
+  "direct test", "the easiest way", "reality of", "how to", "best way",
+  "top companies", "is the job", "remote job", "off campus", "mass hiring"
+];
+
 function cleanExtractedCompanyName(raw) {
   let name = raw.trim();
   // Remove trailing 4-digit years (one or more, space-separated)
   name = name.replace(/(?:\s+20\d{2}){1,}\s*$/g, "");
-  // Remove trailing batch/year noise words
-  name = name.replace(/\s+(?:batch|freshers?|off\s*campus|mass|direct\s+test|hiring|drive)\s*$/gi, "");
+  // Remove trailing filler/noise words (repeatedly, to strip "Finally Hiring" etc.)
+  const FILLER = "batch|freshers?|off\\s*campus|mass|direct\\s+test|hiring|drive|finally|announced|update|now|apply|interns?|apprentice|biggest|latest|new|multiple|opportunities|challenge";
+  const fillerRe = new RegExp(`\\s+(?:${FILLER})\\s*$`, "gi");
+  // Strip repeatedly to handle "Kyndryl Biggest Hiring" → "Kyndryl"
+  let prev;
+  do { prev = name; name = name.replace(fillerRe, "").trim(); } while (name !== prev);
   return name.trim();
+}
+
+function isValidCompanyName(name) {
+  if (!name || name.length < 2) return false;
+  const lower = name.toLowerCase();
+  // Reject if it matches or starts with a known non-company phrase
+  if (NON_COMPANY_PHRASES.some(p => lower === p || lower.startsWith(p))) return false;
+  // Reject titles that are clearly sentences (too many words)
+  if (name.split(/\s+/).length > 4) return false;
+  return true;
 }
 
 function extractCompanyNamesFromTitle(title) {
@@ -174,7 +197,7 @@ function extractCompanyNamesFromTitle(title) {
     const m = title.match(re);
     if (m?.[1]) {
       const name = cleanExtractedCompanyName(m[1]);
-      if (name.length >= 2 && !isGarbageCompanyName(name)) names.push(name);
+      if (isValidCompanyName(name) && !isGarbageCompanyName(name)) names.push(name);
     }
   }
   return names;
