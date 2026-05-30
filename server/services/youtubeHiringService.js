@@ -4,6 +4,33 @@ const CareerSource = require("../models/CareerSource");
 const normalizeCompanyName = require("../utils/normalizeCompanyName");
 const getCoords = require("../utils/geocode");
 const { isGarbageCompanyName } = require("../utils/companyNameValidator");
+const { upsertIngestedJob } = require("../utils/jobPersistence");
+
+// ─── Fresher-drive signal detection ───────────────────────────────────────────
+// A video that mentions any of these is treated as a fresher/entry-level drive,
+// so jobs extracted from it are stamped experienceLevel = "fresher".
+const FRESHER_SIGNAL_RE = new RegExp(
+  [
+    "\\bfreshers?\\b",
+    "\\boff[\\s-]?campus\\b",
+    "\\bon[\\s-]?campus\\b",
+    "\\bcampus\\s+(?:drive|hiring|placement)",
+    "\\bgraduate\\s+(?:trainee|hiring|program|programme)",
+    "\\btrainee\\b",
+    "\\bentry[\\s-]?level\\b",
+    "\\bnqt\\b", // TCS National Qualifier Test
+    "\\b20\\d{2}\\s+batch\\b", // "2024 batch", "2025 batch"
+    "\\bbatch\\s+20\\d{2}\\b",
+    "\\b0\\s*[-–]\\s*[12]\\s*(?:year|yr)",
+    "\\bnew\\s+grad",
+    "\\bjunior\\b"
+  ].join("|"),
+  "i"
+);
+
+function isFresherDrive(title, description) {
+  return FRESHER_SIGNAL_RE.test(`${title}\n${description}`);
+}
 
 // ─── Channel config ───────────────────────────────────────────────────────────
 // Add more channels here over time. handle = YouTube @handle or channel ID.
@@ -121,6 +148,20 @@ function extractUrls(text) {
   return [...new Set((text.match(urlRe) || []).map(u => u.replace(/[.,;:!?]+$/, "")))];
 }
 
+// Strip trailing batch years, "off campus", and other noise the title patterns
+// accidentally capture as part of the company name.
+//   "Accenture 2026"      → "Accenture"
+//   "Wipro 2026 2025"     → "Wipro"
+//   "Concentrix Direct Test" → "Concentrix"
+function cleanExtractedCompanyName(raw) {
+  let name = raw.trim();
+  // Remove trailing 4-digit years (one or more, space-separated)
+  name = name.replace(/(?:\s+20\d{2}){1,}\s*$/g, "");
+  // Remove trailing batch/year noise words
+  name = name.replace(/\s+(?:batch|freshers?|off\s*campus|mass|direct\s+test|hiring|drive)\s*$/gi, "");
+  return name.trim();
+}
+
 function extractCompanyNamesFromTitle(title) {
   // Patterns like "X is hiring", "X hiring freshers", "apply at X", "X careers"
   const patterns = [
@@ -132,7 +173,7 @@ function extractCompanyNamesFromTitle(title) {
   for (const re of patterns) {
     const m = title.match(re);
     if (m?.[1]) {
-      const name = m[1].trim();
+      const name = cleanExtractedCompanyName(m[1]);
       if (name.length >= 2 && !isGarbageCompanyName(name)) names.push(name);
     }
   }
@@ -200,17 +241,65 @@ async function registerDiscoveredATS({ slug, provider, boardUrl, companyName }) 
   return false;
 }
 
+// ─── Create a fresher job directly from a video's apply link ─────────────────
+
+async function createFresherJob({ companyName, applyLink, title, isFresher }) {
+  const normalized = normalizeCompanyName(companyName);
+  if (!normalized || isGarbageCompanyName(companyName)) return false;
+
+  let company = await Company.findOne({ name: normalized });
+  if (!company) {
+    const coords = await getCoords("India");
+    company = await Company.create({
+      name: normalized,
+      logo: null,
+      careersUrl: applyLink,
+      discoverySources: ["youtube"],
+      intelligenceStatus: "pending",
+      source: "youtube",
+      lat: coords?.lat || null,
+      lng: coords?.lng || null,
+      lastIntelligenceAt: new Date()
+    });
+    console.log(`[YOUTUBE] New fresher company: ${normalized}`);
+  }
+
+  const job = await upsertIngestedJob({
+    title,
+    company: company._id,
+    location: "India",
+    applyLink,
+    description: null,
+    source: "youtube",
+    postedDate: new Date(),
+    isRemote: false,
+    // Stamp fresher level so it lands in the Fresher tab
+    ...(isFresher ? { yearsMin: 0, yearsMax: 1 } : {})
+  });
+
+  // upsertIngestedJob may not persist experienceLevel from years alone — set it
+  // explicitly so the Fresher tab filter matches without relying on display-time logic.
+  if (isFresher && job?._id) {
+    const Job = require("../models/Job");
+    await Job.findByIdAndUpdate(job._id, { $set: { experienceLevel: "fresher" } }).catch(() => {});
+  }
+
+  return true;
+}
+
 // ─── Process a single video ───────────────────────────────────────────────────
 
 async function processVideo({ title, description, publishedAt, videoId }) {
-  const signals = { atsFound: 0, companiesNoted: [] };
+  const signals = { atsFound: 0, fresherJobs: 0, companiesNoted: [] };
 
   const allText = `${title}\n${description}`;
   const urls = extractUrls(allText);
   const companyNames = extractCompanyNamesFromTitle(title);
+  const fresher = isFresherDrive(title, description);
 
   for (const url of urls) {
     const classified = classifyUrl(url);
+
     if (classified.type === "ats") {
       const registered = await registerDiscoveredATS({
         slug:        classified.slug,
@@ -219,6 +308,23 @@ async function processVideo({ title, description, publishedAt, videoId }) {
         companyName: companyNames[0] || classified.slug
       });
       if (registered) signals.atsFound++;
+    }
+
+    // For fresher drives, also create a direct job from the careers/apply link
+    // so it surfaces immediately in the Fresher tab (not just registered for
+    // later ingestion).
+    if (fresher && (classified.type === "ats" || classified.type === "careers") && companyNames.length) {
+      try {
+        const created = await createFresherJob({
+          companyName: companyNames[0],
+          applyLink:   url,
+          title:       `${companyNames[0]} — Freshers Hiring`,
+          isFresher:   true
+        });
+        if (created) signals.fresherJobs++;
+      } catch (e) {
+        console.log(`[YOUTUBE] Fresher job create failed: ${e.message}`);
+      }
     }
   }
 
@@ -239,6 +345,7 @@ async function runYoutubeHiringDiscovery() {
 
   let totalVideos = 0;
   let totalNewSources = 0;
+  let totalFresherJobs = 0;
 
   for (const channel of WATCHED_CHANNELS) {
     console.log(`[YOUTUBE] Processing channel: ${channel.label} (@${channel.handle})`);
@@ -272,10 +379,11 @@ async function runYoutubeHiringDiscovery() {
       try {
         const signals = await processVideo(video);
         totalNewSources += signals.atsFound;
-        if (signals.atsFound > 0 || signals.companiesNoted.length > 0) {
+        totalFresherJobs += signals.fresherJobs;
+        if (signals.atsFound > 0 || signals.fresherJobs > 0 || signals.companiesNoted.length > 0) {
           console.log(
             `[YOUTUBE] "${video.title.slice(0, 60)}" ` +
-            `→ ${signals.atsFound} new ATS sources | companies: ${signals.companiesNoted.join(", ") || "none"}`
+            `→ ${signals.atsFound} ATS | ${signals.fresherJobs} fresher jobs | companies: ${signals.companiesNoted.join(", ") || "none"}`
           );
         }
       } catch (e) {
@@ -286,8 +394,8 @@ async function runYoutubeHiringDiscovery() {
     totalVideos += detailed.length;
   }
 
-  console.log(`[YOUTUBE] Done | videos scanned: ${totalVideos} | new ATS sources: ${totalNewSources}`);
-  return { channelsScanned: WATCHED_CHANNELS.length, videosScanned: totalVideos, newSources: totalNewSources };
+  console.log(`[YOUTUBE] Done | videos scanned: ${totalVideos} | new ATS sources: ${totalNewSources} | fresher jobs: ${totalFresherJobs}`);
+  return { channelsScanned: WATCHED_CHANNELS.length, videosScanned: totalVideos, newSources: totalNewSources, fresherJobs: totalFresherJobs };
 }
 
 module.exports = { runYoutubeHiringDiscovery };
