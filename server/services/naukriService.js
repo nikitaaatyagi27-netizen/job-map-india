@@ -43,6 +43,52 @@ const ROLES = [
   "Product Manager", "Technical Program Manager", "Data Analyst"
 ];
 
+// ─── Tech-relevance filter ────────────────────────────────────────────────────
+// Naukri's keyword search returns plenty of non-tech roles (marketing, HR, sales,
+// admin) that happen to share a word with the query. We reject those at ingestion
+// time so they never bloat the DB.
+
+const TECH_TITLE_KEYWORDS = [
+  "engineer", "developer", "software", "programmer", "backend", "frontend",
+  "fullstack", "full stack", "devops", "cloud", "data scien", "data engineer",
+  "data analyst", "machine learning", " ml ", " ai ", "artificial intelligence",
+  "deep learning", "nlp", "computer vision", "security", "cyber", "penetration",
+  "platform", "site reliability", " sre", "android", "ios", "mobile",
+  "qa ", "sdet", "tester", "test engineer", "automation", "architect",
+  "java", "python", "javascript", "react", "angular", "node", ".net", "golang",
+  "php", "ruby", "scala", "kotlin", "flutter", "blockchain", "embedded",
+  "firmware", "database", "dba", "sql", "etl", "big data", "hadoop", "spark",
+  "technical lead", "tech lead", "engineering manager", "product manager",
+  "program manager", "scrum master", "ui developer", "ux"
+];
+
+// Hard reject — titles containing these are almost never the tech roles we want,
+// even if they slipped past the keyword match.
+const NON_TECH_TITLE_KEYWORDS = [
+  "marketing", "sales", "business development", "bdm", "telecaller", "telecalling",
+  "telesales", "recruiter", "recruitment", "talent acquisition", "human resource",
+  " hr ", "hr ", "payroll", "accountant", "accounts", "finance executive",
+  "relationship manager", "branch manager", "store manager", "operations executive",
+  "customer support", "customer service", "customer care", "bpo", "kpo",
+  "voice process", "non voice", "back office", "data entry", "receptionist",
+  "admin executive", "office assistant", "field executive", "delivery",
+  "nurse", "nursing", "doctor", "pharmacist", "teacher", "tutor", "faculty",
+  "content writer", "copywriter", "graphic designer", "interior designer",
+  "civil engineer", "mechanical engineer", "electrical engineer", "site engineer",
+  "production engineer", "quality engineer", "maintenance", "supervisor",
+  "warehouse", "logistics", "procurement", "purchase", "vendor",
+  "insurance", "loan", "banking executive", "collection", "counsellor", "counselor"
+];
+
+function isTechTitle(title) {
+  const t = (title || "").toLowerCase();
+  if (!t) return false;
+  // Reject outright if it matches a non-tech keyword
+  if (NON_TECH_TITLE_KEYWORDS.some(k => t.includes(k))) return false;
+  // Accept only if it matches a tech keyword
+  return TECH_TITLE_KEYWORDS.some(k => t.includes(k));
+}
+
 // Headline-source intensity: more cities + pages for broader coverage.
 // Kept conservative on delay (1500ms) to stay under Naukri's rate limiting —
 // the circuit breaker auto-disables after 3 rate-limited runs as a safety net.
@@ -212,6 +258,9 @@ async function ensureCompany(companyName, location, city) {
 async function saveJob(jobData, city) {
   const { title, companyName, location, applyLink, salary, postedDate, yearsMin, yearsMax } = jobData;
   if (!title || !companyName || !applyLink) return false;
+
+  // Reject non-tech / garbage titles at ingestion time so they never enter the DB
+  if (!isTechTitle(title)) return false;
 
   const company = await ensureCompany(companyName, location, city);
   if (!company) return false;
