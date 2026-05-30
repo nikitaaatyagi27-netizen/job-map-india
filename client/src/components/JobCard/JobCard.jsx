@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Button, Chip, IconButton, Typography } from '@mui/material';
+import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -37,7 +37,15 @@ const JobCard = React.memo(function JobCard({ job, companyName, companyId, saved
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
-        {job.source && (
+        {job.source && job.source === 'naukri' ? (
+          <Tooltip title="Listed on Naukri — you may need to log in to Naukri to apply">
+            <Chip
+              label="via Naukri"
+              size="small"
+              sx={{ bgcolor: '#422006', color: '#fbbf24', border: '1px solid #a16207', fontSize: 10, height: 20, cursor: 'help' }}
+            />
+          </Tooltip>
+        ) : job.source && (
           <Chip
             label={SOURCE_LABELS[job.source] || job.source}
             size="small"

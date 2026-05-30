@@ -43,9 +43,12 @@ const ROLES = [
   "Product Manager", "Technical Program Manager", "Data Analyst"
 ];
 
-const DEFAULT_CITY_RUN_SIZE = Math.max(Number(process.env.NAUKRI_CITIES_PER_RUN || 30), 1);
-const MAX_PAGES_PER_QUERY  = Math.max(Number(process.env.NAUKRI_MAX_PAGES_PER_QUERY || 3), 1);
-const REQUEST_DELAY_MS     = Math.max(Number(process.env.NAUKRI_REQUEST_DELAY_MS || 1200), 0);
+// Headline-source intensity: more cities + pages for broader coverage.
+// Kept conservative on delay (1500ms) to stay under Naukri's rate limiting —
+// the circuit breaker auto-disables after 3 rate-limited runs as a safety net.
+const DEFAULT_CITY_RUN_SIZE = Math.max(Number(process.env.NAUKRI_CITIES_PER_RUN || 40), 1);
+const MAX_PAGES_PER_QUERY  = Math.max(Number(process.env.NAUKRI_MAX_PAGES_PER_QUERY || 4), 1);
+const REQUEST_DELAY_MS     = Math.max(Number(process.env.NAUKRI_REQUEST_DELAY_MS || 1500), 0);
 const REQUEST_TIMEOUT_MS   = 25000;
 
 // Circuit breaker: counts 403/429 responses across runs (persists for the

@@ -2,7 +2,7 @@ const Job = require("../models/Job");
 
 // Source-specific cutoffs (days). More frequent re-scraping sources expire faster.
 const SOURCE_CUTOFFS = {
-  naukri: 7,
+  naukri: 5,
   jsearch: 7,
   adzuna: 5,
   arbeitnow: 7,

@@ -66,7 +66,7 @@ const INGESTION_SOURCE_CATALOG = [
     key: "naukri",
     label: "Naukri",
     handler: fetchNaukriJobs,
-    basePriority: 63,
+    basePriority: 75,
     category: "aggregator"
   },
   {

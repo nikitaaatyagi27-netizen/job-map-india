@@ -74,7 +74,7 @@ function scoreJob(title, location, source, primarySkills, suggestedRoles, domain
   const t = (title || '').toLowerCase();
   const sourceQuality = {
     greenhouse: 90, lever: 90, ashby: 90, smartrecruiters: 88,
-    workday: 95, naukri: 63, jsearch: 70, adzuna: 68
+    workday: 95, naukri: 75, jsearch: 70, adzuna: 68
   };
 
   score += (sourceQuality[source] || 60);
@@ -398,7 +398,7 @@ async function searchDBJobs(primarySkills, secondarySkills, suggestedRoles, doma
   console.log(`[SKILL SEARCH DB] Terms (${allTerms.length}): ${allTerms.join(', ')}`);
 
   const SOURCE_FRESHNESS_DAYS = {
-    naukri: 7, jsearch: 10, adzuna: 14, arbeitnow: 14, remotive: 14,
+    naukri: 5, jsearch: 10, adzuna: 14, arbeitnow: 14, remotive: 14,
     greenhouse: 45, lever: 45, ashby: 45, smartrecruiters: 45,
     workday: 45, taleo: 45, successfactors: 45,
   };
