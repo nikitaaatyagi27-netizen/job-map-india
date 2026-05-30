@@ -6,10 +6,14 @@ const { requireAuth } = require("../middleware/requireAuth");
 
 const router = express.Router();
 
+const IS_PROD = process.env.NODE_ENV === "production";
+
+// Cross-domain (Vercel frontend ↔ Render backend) requires SameSite=None + Secure.
+// In local dev (same-site localhost) fall back to Lax over http.
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "strict",
+  secure: IS_PROD,
+  sameSite: IS_PROD ? "none" : "lax",
   maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
 };
 
