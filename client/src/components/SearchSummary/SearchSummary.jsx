@@ -2,7 +2,6 @@ import React from 'react';
 import { Box, Typography, IconButton, Tooltip } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import BoltIcon from '@mui/icons-material/Bolt';
-import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 
 const EXPERIENCE_OPTIONS = [
   { value: 'all',    label: 'All' },
@@ -13,7 +12,6 @@ const EXPERIENCE_OPTIONS = [
 
 export default function SearchSummary({ resumeData, jobs, searchDuration, fromCache, onNewSearch, experienceFilter = 'all', onExperienceFilterChange }) {
   const totalJobs    = jobs.reduce((n, c) => n + (c.roles?.length || 0), 0);
-  const activeCount  = jobs.filter(c => (c.hiringVelocity?.last7Days || 0) >= 3).length;
   const atsCount     = jobs.filter(c => c.atsProvider).length;
   const domainLabel  = resumeData?.domain
     ? resumeData.domain.replace(/[_-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
@@ -85,21 +83,6 @@ export default function SearchSummary({ resumeData, jobs, searchDuration, fromCa
               );
             })}
           </Box>
-        </>
-      )}
-
-      {/* Actively hiring badge */}
-      {activeCount > 0 && (
-        <>
-          <Separator />
-          <Tooltip title="Companies that posted 3+ new jobs in the last 7 days">
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, cursor: 'help' }}>
-              <LocalFireDepartmentIcon sx={{ fontSize: 14, color: '#22c55e' }} />
-              <Typography variant="body2" sx={{ color: '#22c55e', fontWeight: 700, fontSize: 13 }}>
-                {activeCount} hiring
-              </Typography>
-            </Box>
-          </Tooltip>
         </>
       )}
 
