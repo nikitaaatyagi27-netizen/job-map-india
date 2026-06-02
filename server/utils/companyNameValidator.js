@@ -24,6 +24,20 @@ const GARBAGE_PATTERNS = [
   /^(software company|tech company|it company|saas company|startup jobs|it jobs|india jobs)/i,
   // Full string is just "<some words> <city>" — likely a search query, not a real name
   /^[a-z\s]+(pune|mumbai|delhi|bangalore|hyderabad|chennai|noida|gurgaon|gurugram|kolkata)(\s+india)?$/i,
+  // Recruiter / staffing / placement middlemen — not the actual hiring company.
+  // "Tata Consultancy Services" survives because "services" follows "consultancy"
+  // (real IT firm), whereas "Sharda Consultancy" / "ABC Placement" are recruiters.
+  /\bplacement(s)?\b/i,
+  /\bstaffing\b/i,
+  /\bmanpower\b/i,
+  /\bhr\s+(services|solutions|consult)/i,
+  /\bconsultancy\b(?!\s+services)/i,           // "X Consultancy" but not "X Consultancy Services"
+  /\bconsultant(s)?\b(?!\s+(services|pvt|ltd|inc|llp))/i,
+  /\brecruit(ment|ers?)\b/i,
+  /\bhiring\s+partner\b/i,
+  /\b(job\s+consultant|career\s+consultant|talent\s+solutions)\b/i,
+  // Placeholder / anonymous employer names
+  /^(a\s+|an\s+|the\s+)?(leading|reputed|well[\s-]known|top|mnc|client|confidential|undisclosed)\b/i,
 ];
 
 /**
