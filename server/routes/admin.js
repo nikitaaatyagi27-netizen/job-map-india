@@ -1,7 +1,6 @@
 const express = require("express");
 const { requireAdminAuth } = require("../middleware/adminAuth");
 const { runIngestionQueue } = require("../services/ingestionOrchestratorService");
-const { runAlertDigest } = require("../services/jobAlertService");
 const { clearSourceBackoff } = require("../services/sourceHealthService");
 const { registerUniversalSource } = require("../services/universalCareerSourceService");
 const { getIngestionSourceCatalog } = require("../config/ingestionSourceCatalog");
@@ -62,15 +61,6 @@ router.post("/ingestion/run", async (req, res) => {
   } catch (error) {
     console.error("[ADMIN INGESTION RUN] Failed:", error.message);
     return res.status(500).json({ error: "Failed to run ingestion" });
-  }
-});
-
-router.post("/alerts/test", async (req, res) => {
-  try {
-    const result = await runAlertDigest("daily", { lookbackDays: 30, force: true });
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
   }
 });
 

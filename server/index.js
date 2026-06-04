@@ -13,7 +13,6 @@ const { runIngestionMonitor }    = require("./services/ingestionMonitorService")
 const { runDedup }               = require("./services/dedupeService");
 const { computeHiringVelocity } = require("./services/hiringVelocityService");
 const { backfillAtsProviders }  = require("./services/atsProviderBackfillService");
-const { runAlertDigest }        = require("./services/jobAlertService");
 const { discoverAndIngestWorkdayBoards } = require("./services/workdayDiscoveryService");
 const { runYoutubeHiringDiscovery }      = require("./services/youtubeHiringService");
 const { runJobVerification }             = require("./services/jobVerificationService");
@@ -155,24 +154,6 @@ async function bootstrap() {
       console.log(`[CRON] Job verification done | checked: ${result.checked} | marked inactive: ${result.markedInactive}`);
     } catch (error) {
       console.error("[CRON] Job verification failed:", error.message);
-    }
-  });
-
-  // Cron: daily alert digest at 8am IST (2:30am UTC)
-  cron.schedule("30 2 * * *", async () => {
-    try {
-      await runAlertDigest("daily");
-    } catch (error) {
-      console.error("[CRON] Alert digest failed:", error.message);
-    }
-  });
-
-  // Cron: weekly alert digest — Monday 9am IST (3:30am UTC)
-  cron.schedule("30 3 * * 1", async () => {
-    try {
-      await runAlertDigest("weekly");
-    } catch (error) {
-      console.error("[CRON] Weekly alert digest failed:", error.message);
     }
   });
 

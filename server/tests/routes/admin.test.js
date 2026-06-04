@@ -2,11 +2,6 @@ const express = require('express');
 const request = require('supertest');
 
 // ── Mock every service the admin router imports ────────────────────────────────
-jest.mock('../../services/jobAlertService', () => ({
-  runAlertDigest: jest.fn().mockResolvedValue({ total: 2, sent: 1 }),
-  subscribe: jest.fn(),
-  unsubscribe: jest.fn()
-}));
 jest.mock('../../services/ingestionOrchestratorService', () => ({
   runIngestionQueue: jest.fn().mockResolvedValue({
     executedTasks: 1, successes: [], failures: [], skippedTasks: 0
@@ -58,7 +53,7 @@ describe('Admin auth — requireAdminAuth middleware', () => {
 
   test('returns 503 when INGESTION_ADMIN_TOKEN is not set', async () => {
     delete process.env.INGESTION_ADMIN_TOKEN;
-    const res = await request(buildApp()).post('/api/admin/alerts/test').send({});
+    const res = await request(buildApp()).post('/api/admin/ingestion/run').send({ sources: ['jsearch'] });
     expect(res.status).toBe(503);
     expect(res.body.error).toMatch(/not configured/i);
   });
@@ -66,24 +61,24 @@ describe('Admin auth — requireAdminAuth middleware', () => {
   test('returns 401 when token is wrong', async () => {
     process.env.INGESTION_ADMIN_TOKEN = 'correct-secret';
     const res = await request(buildApp())
-      .post('/api/admin/alerts/test')
+      .post('/api/admin/ingestion/run')
       .set('Authorization', 'Bearer wrong-token')
-      .send({});
+      .send({ sources: ['jsearch'] });
     expect(res.status).toBe(401);
   });
 
   test('returns 401 when Authorization header is absent', async () => {
     process.env.INGESTION_ADMIN_TOKEN = 'correct-secret';
-    const res = await request(buildApp()).post('/api/admin/alerts/test').send({});
+    const res = await request(buildApp()).post('/api/admin/ingestion/run').send({ sources: ['jsearch'] });
     expect(res.status).toBe(401);
   });
 
   test('passes through with the correct Bearer token', async () => {
     process.env.INGESTION_ADMIN_TOKEN = 'correct-secret';
     const res = await request(buildApp())
-      .post('/api/admin/alerts/test')
+      .post('/api/admin/ingestion/run')
       .set('Authorization', 'Bearer correct-secret')
-      .send({});
+      .send({ sources: ['jsearch'] });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
   });

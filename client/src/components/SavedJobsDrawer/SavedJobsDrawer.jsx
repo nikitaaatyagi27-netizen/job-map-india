@@ -6,7 +6,6 @@ import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import CloseIcon from '@mui/icons-material/Close';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import AlertSubscription from '../AlertSubscription/AlertSubscription';
 
 export default function SavedJobsDrawer({ open, onClose, savedJobs, appliedLinks, resumeData, onToggleSave, onApply }) {
   return (
@@ -25,12 +24,6 @@ export default function SavedJobsDrawer({ open, onClose, savedJobs, appliedLinks
             <CloseIcon />
           </IconButton>
         </Box>
-
-        {resumeData && (
-          <Box sx={{ mb: 2, p: 1.5, bgcolor: '#1e293b', borderRadius: 2, border: '1px solid #334155' }}>
-            <AlertSubscription resumeData={resumeData} />
-          </Box>
-        )}
 
         <Divider sx={{ mb: 2, borderColor: '#1e293b' }} />
 
