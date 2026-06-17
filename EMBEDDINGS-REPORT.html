@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vector Embeddings & Semantic Search — Full Report</title>
+<style>
+  :root { --ink:#1a1a2e; --muted:#555; --accent:#3b3bb3; --code-bg:#f5f6fa; --line:#e3e3ef; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); line-height: 1.55; max-width: 920px; margin: 0 auto;
+    padding: 28px 36px; font-size: 14px;
+  }
+  h1 { font-size: 26px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; margin-bottom: 4px; }
+  h2 { font-size: 19px; color: var(--accent); margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  h3 { font-size: 15.5px; margin-top: 22px; color: #2a2a55; }
+  h4 { font-size: 13.5px; margin-top: 16px; margin-bottom: 4px; color: #333; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-family: "Cascadia Code","Consolas",monospace; font-size: 12.5px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.45;
+    font-family: "Cascadia Code","Consolas",monospace;
+  }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 12.5px; }
+  th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: #ecedf7; }
+  .file { font-family: "Cascadia Code",monospace; font-size: 12px; color: var(--accent); font-weight: 600; }
+  .note { background: #fff8e6; border-left: 3px solid #e0a800; padding: 9px 13px; border-radius: 5px; margin: 12px 0; font-size: 13px; }
+  .why { background: #eef6ee; border-left: 3px solid #3a8a3a; padding: 9px 13px; border-radius: 5px; margin: 12px 0; font-size: 13px; }
+  .flow { background:#f0f1fb; border:1px solid var(--line); border-radius:6px; padding:14px 16px; font-family:"Cascadia Code",monospace; font-size:12px; white-space:pre; overflow-x:auto; }
+  ol li, ul li { margin: 3px 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc li { margin: 2px 0; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 26px 0; }
+  .tag { display:inline-block; background:var(--accent); color:#fff; font-size:10.5px; padding:1px 7px; border-radius:10px; vertical-align:middle; margin-left:6px; }
+  .small { font-size: 12px; color: var(--muted); }
+  @media print { body { padding: 0 6mm; } h2 { page-break-after: avoid; } pre, table, .flow { page-break-inside: avoid; } h1,h2,h3 { page-break-after: avoid; } }
+</style>
+</head>
+<body>
+
+<h1>Vector Embeddings &amp; Semantic Search</h1>
+<p class="sub">Job Map India — complete report on every component of the semantic-search system: what it is, where it lives, where it's called from, and why each decision was made. Generated 2026-06-18.</p>
+
+<h2>0. Executive summary</h2>
+<p>Job matching in this app is <strong>semantic, not keyword-based</strong>. Every job stored in the database carries a 768-dimensional <em>embedding</em> — a numeric fingerprint of its meaning, computed from the job's title + skills + qualifications + description. When a user uploads a resume, the app extracts a skill profile, embeds that profile into the same vector space, and ranks jobs by <strong>cosine similarity</strong> (how close the two vectors point in 768-D space). Relevance — not keyword overlap, not recency — decides what surfaces.</p>
+
+<p>The embeddings are produced by a <strong>local model</strong> (<code>Xenova/bge-base-en-v1.5</code>) running in-process via Transformers.js. There is no embedding API, no API key, no quota, and no rate limit. Similarity is computed in plain Node.js (a dot product), so no special database index or paid cluster tier is required.</p>
+
+<table>
+  <tr><th>Property</th><th>Value</th></tr>
+  <tr><td>Model</td><td><code>Xenova/bge-base-en-v1.5</code> (BGE base, English, v1.5)</td></tr>
+  <tr><td>Vector size</td><td>768 dimensions, unit-normalized</td></tr>
+  <tr><td>Runtime</td><td><code>@xenova/transformers</code> ^2.17.2 — local CPU, ~440 MB model, downloaded once &amp; cached</td></tr>
+  <tr><td>Similarity</td><td>Cosine similarity, computed in Node (no Atlas <code>$vectorSearch</code>)</td></tr>
+  <tr><td>Match threshold</td><td><code>JOB_VECTOR_MIN_SCORE = 0.62</code> (model-specific)</td></tr>
+  <tr><td>Result cap</td><td><code>JOB_VECTOR_TOP_K = 300</code> DB matches per search</td></tr>
+</table>
+
+<h2 class="toc">Contents</h2>
+<ol class="toc">
+  <li><a href="#what">What an embedding is, and why this app uses them</a></li>
+  <li><a href="#files">The pipeline at a glance — every file involved</a></li>
+  <li><a href="#client">The embedding client — <span class="file">embeddingClient.js</span></a></li>
+  <li><a href="#text">What text gets embedded — <span class="file">jobEmbedText.js</span></a></li>
+  <li><a href="#model">The vector fields on the Job model — <span class="file">Job.js</span></a></li>
+  <li><a href="#ingest">Embed-on-ingest — <span class="file">jobPersistence.js</span></a></li>
+  <li><a href="#backfill">Backfill script — <span class="file">backfillJobEmbeddings.js</span></a></li>
+  <li><a href="#search">DB search &amp; ranking — <span class="file">skillBasedJobSearchService.js</span></a></li>
+  <li><a href="#live">Live-API semantic filter</a></li>
+  <li><a href="#wiring">End-to-end request flow — resume → ranked jobs</a></li>
+  <li><a href="#storage">Storage, quota &amp; cleanup</a></li>
+  <li><a href="#test">Test / diagnostic scripts</a></li>
+  <li><a href="#history">History: why local model, why app-side cosine</a></li>
+</ol>
+
+<hr>
+
+<h2 id="what">1. What an embedding is, and why this app uses them</h2>
+<p>An <strong>embedding</strong> is a list of numbers (here, 768 of them) that captures the <em>meaning</em> of a piece of text. Two texts that mean similar things produce vectors that point in nearly the same direction; unrelated texts point in different directions. The angle between two vectors — measured as <strong>cosine similarity</strong> (1.0 = identical direction, 0 = unrelated) — becomes a relevance score.</p>
+
+<div class="why"><strong>Why this app needs it:</strong> The old matcher was title-only keyword matching. That threw away most of the signal in a job (required skills, qualifications, description) and produced false positives — e.g. a "penetration testing" job surfacing for a React resume just because both contain the word "developer". Semantic embeddings compare the <em>whole meaning</em> of the resume against the <em>whole meaning</em> of each job, so a React profile ranks React/frontend jobs highly and pushes unrelated roles below threshold even when they share keywords.</p></div>
+
+<p>The flow, end to end:</p>
+<div class="flow">RESUME (PDF/text)
+  │  LLM skill extraction (resumeParserService)
+  ▼
+PROFILE  { primarySkills, secondarySkills, roles, domain }
+  │  buildProfileEmbedText()  →  "Frontend Developer / React Developer\nSkills: react, typescript, ..."
+  │  embed(text, inputType:'query')      ← BGE query prefix added
+  ▼
+QUERY VECTOR  [768 floats]
+  │
+  │   ┌──────────────────────────────┐        ┌────────────────────────────────┐
+  └──▶│ DB jobs (already embedded)   │        │ Live-API jobs (JSearch / ATS)  │
+      │ cosineSimilarity vs each     │        │ embed on the fly, cosine vs     │
+      │ keep score ≥ 0.62, top 300   │        │ query, keep score ≥ 0.62        │
+      └──────────────┬───────────────┘        └───────────────┬────────────────┘
+                     └──────────────┬───────────────────────────┘
+                                    ▼
+                       MERGE + RANK (relevanceFor: similarity leads,
+                       source quality is a small tiebreaker) → grouped by company</div>
+
+<h2 id="files">2. The pipeline at a glance — every file involved</h2>
+<table>
+  <tr><th>Stage</th><th>File</th><th>Role</th></tr>
+  <tr><td>Embedding engine</td><td class="file">server/utils/embeddingClient.js</td><td>Loads the local model; <code>embed()</code> turns text → vectors</td></tr>
+  <tr><td>What to embed</td><td class="file">server/utils/jobEmbedText.js</td><td>Builds canonical job text &amp; resume-profile text; hashing</td></tr>
+  <tr><td>Storage schema</td><td class="file">server/models/Job.js</td><td><code>embedding</code>, <code>embedHash</code>, <code>embeddedAt</code> fields</td></tr>
+  <tr><td>Embed on write</td><td class="file">server/utils/jobPersistence.js</td><td><code>embedJobIfChanged()</code> — runs at every ingest/upsert</td></tr>
+  <tr><td>Bulk backfill</td><td class="file">server/scripts/backfillJobEmbeddings.js</td><td>Embeds all active jobs that have no vector yet</td></tr>
+  <tr><td>Search + rank</td><td class="file">server/services/skillBasedJobSearchService.js</td><td><code>embedProfile</code>, <code>searchDBJobs</code>, <code>cosineSimilarity</code>, <code>semanticFilterLiveJobs</code>, <code>relevanceFor</code></td></tr>
+  <tr><td>HTTP entry</td><td class="file">server/routes/jobs.js</td><td><code>POST</code> skill-search → <code>searchJobsBySkills</code></td></tr>
+  <tr><td>Profile source</td><td class="file">server/services/resumeParserService.js</td><td>LLM extracts <code>primarySkills / secondarySkills / roles / domain</code></td></tr>
+  <tr><td>Quota guard</td><td class="file">server/utils/dbQuota.js</td><td>Detects "over quota" so embedding writes fail cleanly</td></tr>
+  <tr><td>Storage cap</td><td class="file">server/services/storageCleanupService.js</td><td>Keeps embedded corpus under the free-tier 512 MB limit</td></tr>
+  <tr><td>Diagnostics</td><td class="file">server/scripts/testVectorSearch.js</td><td>Runs sample profiles through <code>searchDBJobs</code></td></tr>
+  <tr><td>Docs</td><td class="file">server/docs/semantic-search.md</td><td>In-repo design notes (mirrors this report)</td></tr>
+</table>
+
+<hr>
+
+<h2 id="client">3. The embedding client <span class="tag">embeddingClient.js</span></h2>
+<p class="file">server/utils/embeddingClient.js</p>
+<p>This is the heart of the system: the single place text becomes a vector. Everything else (ingest, backfill, search) calls <code>embed()</code>.</p>
+
+<h4>Constants &amp; model choice</h4>
+<pre><code>const EMBEDDING_DIMENSIONS = 768;
+const MODEL_ID = process.env.LOCAL_EMBED_MODEL || "Xenova/bge-base-en-v1.5";
+const QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";</code></pre>
+<ul>
+  <li><strong>768 dims</strong> — fixed output size of bge-base. Used by the model schema &amp; backfill.</li>
+  <li><strong><code>QUERY_PREFIX</code></strong> — BGE models are <em>asymmetric</em> retrievers: the search <em>query</em> performs best when prefixed with this instruction, while <em>documents</em> (the jobs) are embedded bare. This is added only when <code>inputType: 'query'</code>. It measurably improves match quality.</li>
+</ul>
+
+<h4>Lazy singleton model loader</h4>
+<pre><code>let _extractorPromise = null;
+async function getExtractor() {
+  if (!_extractorPromise) {
+    _extractorPromise = (async () => {
+      const { pipeline } = await import("@xenova/transformers");   // ESM, dynamic import
+      const extractor = await pipeline("feature-extraction", MODEL_ID);
+      return extractor;
+    })();
+  }
+  return _extractorPromise;
+}</code></pre>
+<div class="why"><strong>Why a singleton:</strong> loading the ~440 MB model into memory is the expensive part. It is loaded <em>once</em> per process and reused for every embed call. The first run downloads the model to the Transformers.js cache; subsequent runs load from disk. The dynamic <code>import()</code> is required because <code>@xenova/transformers</code> is an ESM-only package in a CommonJS codebase.</p></div>
+
+<h4>The <code>embed()</code> function — the public interface</h4>
+<pre><code>async function embed(input, { inputType = "document" } = {}) {
+  const extractor = await getExtractor();
+  const isBatch = Array.isArray(input);
+  const raw = (isBatch ? input : [input]).map(t =&gt; (t || "").toString());
+  const texts = inputType === "query"
+    ? raw.map(t =&gt; QUERY_PREFIX + t)     // query: add BGE prefix
+    : raw;                                // document: bare
+
+  // Mean-pool + normalize → one unit-length vector per text.
+  const output = await extractor(texts, { pooling: "mean", normalize: true });
+
+  const [n, dim] = output.dims;           // Tensor shape [n, 768]
+  const data = output.data;
+  const vectors = [];
+  for (let i = 0; i &lt; n; i++) {
+    vectors.push(Array.from(data.slice(i * dim, (i + 1) * dim)));
+  }
+  return isBatch ? vectors : vectors[0];  // single vector for a string, array for an array
+}</code></pre>
+<ul>
+  <li><strong><code>inputType</code></strong> is the asymmetry switch — <code>'document'</code> for jobs, <code>'query'</code> for a resume/skill profile.</li>
+  <li><strong><code>pooling:"mean"</code></strong> averages the per-token vectors into one sentence vector.</li>
+  <li><strong><code>normalize:true</code></strong> makes every vector unit length. With unit vectors, cosine similarity reduces to a plain dot product and scores land in a clean, comparable range.</li>
+  <li><strong>Batch-aware:</strong> a string in → one vector out; an array in → an array of vectors out (order preserved). The search live-filter and the backfill both pass arrays to embed a batch in a single call for speed.</li>
+</ul>
+<p class="small">Exports: <code>{ embed, EMBEDDING_DIMENSIONS, MODEL_ID }</code>.</p>
+
+<h2 id="text">4. What text gets embedded <span class="tag">jobEmbedText.js</span></h2>
+<p class="file">server/utils/jobEmbedText.js</p>
+<p>An embedding is only as good as the text you feed it. This file defines the <strong>canonical text</strong> for both sides of the comparison — the job (document) and the resume profile (query) — and keeps them phrased the same way so they match well.</p>
+
+<h4><code>buildEmbedText(job)</code> — the document side</h4>
+<pre><code>function buildEmbedText(job = {}) {
+  const parts = [];
+  if (job.title) parts.push(job.title);
+  if (job.requiredSkills?.length) parts.push(`Skills: ${job.requiredSkills.join(", ")}`);
+  if (job.qualifications?.length) parts.push(`Qualifications: ${job.qualifications.join(", ")}`);
+  if (job.experienceText) parts.push(job.experienceText);
+  if (job.description) parts.push(job.description.slice(0, 1500));
+  return parts.join("\n").trim();
+}</code></pre>
+<p>Uses the <em>structured fields parsed at ingestion</em> (<code>requiredSkills</code>, <code>qualifications</code>, etc.) plus a 1500-char description snippet — exactly the signal the old title-only matcher discarded. Both ingestion and the backfill call this same function, so the embedded text never drifts between the two paths.</p>
+
+<h4><code>buildProfileEmbedText(profile)</code> — the query side</h4>
+<pre><code>function buildProfileEmbedText({ primarySkills = [], secondarySkills = [], roles = [], domain }) {
+  const parts = [];
+  if (roles.length) parts.push(roles.join(" / "));
+  const skills = [...primarySkills, ...secondarySkills];
+  if (skills.length) parts.push(`Skills: ${skills.join(", ")}`);
+  return parts.join("\n").trim();
+}</code></pre>
+<div class="why"><strong>Why phrased to mirror the job:</strong> the roles lead like a job-title line, and skills follow under the same <code>Skills:</code> label the job documents use. Matching the document format measurably sharpens the top results — it was A/B-tested against an older labelled phrasing (<code>Roles:/Also:/Domain:</code>) and produced a higher max similarity and a higher top-50 average.</p></div>
+
+<h4><code>embedTextHash(text)</code> — change detection</h4>
+<pre><code>function embedTextHash(text) {
+  return crypto.createHash("sha1").update(text || "").digest("hex");
+}</code></pre>
+<p>A stable SHA-1 of the embed text, stored as <code>embedHash</code>. Ingestion compares the new hash against the stored one; if unchanged, it skips re-embedding (saving compute). This is the mechanism that prevents redundant embedding work when a job is re-seen but its searchable content hasn't changed.</p>
+
+<h2 id="model">5. Vector fields on the Job model <span class="tag">Job.js</span></h2>
+<p class="file">server/models/Job.js</p>
+<pre><code>// Semantic search: local bge-base-en-v1.5 embedding of buildEmbedText(job)
+// (768 floats). Similarity is computed in-process via cosine, not by an Atlas
+// Vector Search index. embedHash lets ingestion skip re-embedding unchanged jobs.
+embedding:  { type: [Number], default: null, select: false },
+embedHash:  { type: String,    default: null },
+embeddedAt: { type: Date,      default: null }</code></pre>
+<table>
+  <tr><th>Field</th><th>Purpose</th></tr>
+  <tr><td><code>embedding</code></td><td>The 768-float vector. <strong><code>select: false</code></strong> means it is <em>not</em> loaded by ordinary <code>Job.find()</code> — it's heavy (~6 KB/job), so callers must opt in with <code>.select('+embedding')</code>. Only <code>searchDBJobs</code> does.</td></tr>
+  <tr><td><code>embedHash</code></td><td>SHA-1 of the embed text — lets ingestion skip re-embedding unchanged content.</td></tr>
+  <tr><td><code>embeddedAt</code></td><td>Timestamp of last embed. Doubles as a "needs embedding?" flag: <code>embeddedAt: null</code> selects jobs the backfill still needs to process.</td></tr>
+</table>
+<div class="note"><strong>Comment corrected (2026-06-18):</strong> the inline comment on this field previously referenced "Voyage embedding" and an "Atlas Vector Search index" (plus a non-existent <code>docs/atlas-vector-search.md</code>) — all historical. It has been updated to describe the current reality: a local BGE embedding with cosine computed in Node. The <em>fields themselves</em> were never stale — they are the live storage for the entire semantic-search system; only the comment text was outdated.</div>
+
+<h2 id="ingest">6. Embed-on-ingest <span class="tag">jobPersistence.js</span></h2>
+<p class="file">server/utils/jobPersistence.js</p>
+<p>This is where jobs <em>become searchable</em>. Every job that enters or is updated in the DB passes through here, and embedding happens automatically.</p>
+
+<h4><code>embedJobIfChanged(job)</code></h4>
+<pre><code>async function embedJobIfChanged(job) {
+  try {
+    const text = buildEmbedText(job);
+    if (!text) return;
+    const hash = embedTextHash(text);
+    if (job.embedHash === hash && job.embeddedAt) return;   // unchanged → skip
+
+    const vector = await embed(text, { inputType: "document" });
+    if (!Array.isArray(vector)) return;
+
+    await Job.updateOne(
+      { _id: job._id },
+      { $set: { embedding: vector, embedHash: hash, embeddedAt: new Date() } }
+    );
+  } catch (err) {
+    console.warn(`[EMBED] Skipped job ${job?._id}:`, err?.response?.status || err?.message);
+  }
+}</code></pre>
+<ul>
+  <li><strong>Idempotent:</strong> the <code>embedHash</code> check means re-seeing the same job is free.</li>
+  <li><strong>Embeds as a document</strong> (<code>inputType: "document"</code>) — no query prefix.</li>
+  <li><strong>Errors are swallowed</strong> on purpose: a missing embedding must never break ingestion. The backfill can fill any gaps later.</li>
+</ul>
+
+<h4>Where it's called</h4>
+<p><code>embedJobIfChanged</code> is invoked at the two write paths:</p>
+<ul>
+  <li><strong><code>upsertIngestedJob(payload)</code></strong> — the main ingestion entry. After the job is upserted (and its description parsed into <code>requiredSkills</code>/<code>qualifications</code>/etc.), it <code>await</code>s <code>embedJobIfChanged</code>. It is awaited so a job is never returned as searchable before it can actually be matched.</li>
+  <li><strong><code>touchExistingJob(job, updates)</code></strong> — when a re-seen job gets a newly-filled description (which changes the embed text), it re-embeds.</li>
+</ul>
+<p class="small">Every ingestion source (Naukri, Adzuna, ATS scrapers, universal scrapers) ultimately routes job writes through <code>upsertIngestedJob</code>, so they all inherit embedding for free without referencing the embedding system directly.</p>
+
+<h2 id="backfill">7. Backfill script <span class="tag">backfillJobEmbeddings.js</span></h2>
+<p class="file">server/scripts/backfillJobEmbeddings.js · run: <code>node server/scripts/backfillJobEmbeddings.js</code></p>
+<p>One-off / re-runnable job that embeds every active job which doesn't yet have a vector. Used to seed the corpus and to fill gaps after model changes or ingestion hiccups.</p>
+<pre><code>const filter = { isActive: true, embeddedAt: null };   // every job missing a vector, no time window
+
+while (true) {
+  const jobs = await Job.find(filter)
+    .select("title requiredSkills qualifications experienceText description")
+    .limit(BATCH_SIZE).lean();
+  if (jobs.length === 0) break;
+
+  const prepared = jobs.map(job =&gt; ({ job, text: buildEmbedText(job) })).filter(p =&gt; p.text);
+
+  // Jobs with no embeddable text: stamp embeddedAt so the loop terminates.
+  const emptyIds = jobs.filter(j =&gt; !buildEmbedText(j)).map(j =&gt; j._id);
+  if (emptyIds.length) await Job.updateMany({ _id: { $in: emptyIds } }, { $set: { embeddedAt: new Date() } });
+
+  if (prepared.length) {
+    const vectors = await embed(prepared.map(p =&gt; p.text), { inputType: "document" });  // batched
+    const ops = prepared.map((p, i) =&gt; ({ updateOne: {
+      filter: { _id: p.job._id },
+      update: { $set: { embedding: vectors[i], embedHash: embedTextHash(p.text), embeddedAt: new Date() } }
+    }}));
+    await Job.bulkWrite(ops);   // with ECONNRESET retry (up to 5×)
+  }
+}</code></pre>
+<ul>
+  <li><strong>No time window</strong> — embeds the entire active corpus, not just recent jobs.</li>
+  <li><strong>Batched</strong> by <code>BACKFILL_BATCH_SIZE</code> (default 32) — controls embeds + DB writes per round-trip.</li>
+  <li><strong>Safe to re-run</strong> — only touches jobs where <code>embeddedAt</code> is null.</li>
+  <li><strong>Empty-text jobs</strong> get <code>embeddedAt</code> stamped (but no vector) so the loop terminates and they aren't retried forever.</li>
+  <li><strong>Write retries</strong> — Atlas connections can drop mid-run (<code>ECONNRESET</code>); writes retry up to 5× since the vectors are already computed and re-writing is idempotent.</li>
+</ul>
+
+<h2 id="search">8. DB search &amp; ranking <span class="tag">skillBasedJobSearchService.js</span></h2>
+<p class="file">server/services/skillBasedJobSearchService.js</p>
+<p>This is where embeddings are <em>used</em> — turned into ranked results.</p>
+
+<h4>Tunables</h4>
+<pre><code>const MIN_VECTOR_SCORE = Number(process.env.JOB_VECTOR_MIN_SCORE || 0.62);
+const VECTOR_TOP_K     = Number(process.env.JOB_VECTOR_TOP_K     || 300);</code></pre>
+<div class="why"><strong>Why 0.62:</strong> bge-base has a high similarity <em>baseline</em> — unrelated professional text (sales/HR/procurement roles) scored ~0.50–0.60 against a React resume in testing. Real signal starts ~0.62+. The threshold cuts that noise while keeping recall for thin/niche domains. <strong>It is model-specific</strong> — if the embedding model changes, this must be re-measured.</p></div>
+
+<h4><code>cosineSimilarity(a, b)</code> — the math, in Node</h4>
+<pre><code>function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return -1;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i &lt; a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+  if (na === 0 || nb === 0) return -1;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}</code></pre>
+<div class="why"><strong>Why in-process, not Atlas <code>$vectorSearch</code>:</strong> Atlas Vector Search needs a dedicated M10+ cluster (not available on free tiers). Computing cosine in Node works on <em>any</em> cluster tier including the free M0. At the current corpus size (~18k jobs) the per-search cost of loading and scoring vectors is small. The docs flag this as the one place to revisit (move to a vector index / pgvector) if the corpus grows into the tens of thousands.</p></div>
+
+<h4><code>embedProfile(...)</code> — resume → query vector</h4>
+<pre><code>async function embedProfile(primarySkills, secondarySkills, suggestedRoles, domain) {
+  const profileText = buildProfileEmbedText({ primarySkills, secondarySkills, roles: suggestedRoles, domain });
+  if (!profileText) return null;
+  return await embed(profileText, { inputType: "query" });   // ← query prefix applied
+}</code></pre>
+<p>Embedded <strong>once</strong> per search and reused for both the DB scan and the live-API filter, so the profile is never embedded twice.</p>
+
+<h4><code>searchDBJobs(...)</code> — the core retrieval</h4>
+<pre><code>const candidates = await Job.find({ isActive: true, embedding: { $ne: null } })
+  .select('+embedding title location applyLink source description firstSeenAt lastSeenAt ' +
+          'postedDate experienceLevel yearsMin yearsMax experienceText requiredSkills ' +
+          'qualifications responsibilityBullets company')
+  .populate('company', 'name logo domain lat lng atsProvider hiringVelocity careersProvider')
+  .lean();
+
+const jobs = candidates
+  .map(job =&gt; ({ job, _score: cosineSimilarity(queryVector, job.embedding) }))
+  .filter(x =&gt; x._score &gt;= MIN_VECTOR_SCORE)   // threshold
+  .sort((a, b) =&gt; b._score - a._score)        // best first
+  .slice(0, VECTOR_TOP_K)                      // cap at 300
+  .map(x =&gt; ({ ...x.job, _score: x._score }));</code></pre>
+<p>Steps: load <em>all</em> embedded active jobs (no time window — relevance, not age, decides), score each by cosine against the query vector, keep those ≥ 0.62, sort by score, keep the top 300. Then two post-filters before returning:</p>
+<ul>
+  <li><strong>Hard title exclusion:</strong> jobs whose title matches <code>IRRELEVANT_TITLES</code> (officer, director, VP, sales, HR, recruiter, …) are dropped <em>regardless</em> of similarity — the one keyword rule kept, to guarantee leadership/non-tech roles never surface.</li>
+  <li><strong>Per-source freshness:</strong> each source has a max age (Naukri 5 days, JSearch 10, Adzuna 14, direct ATS 45, default 21); stale jobs are skipped.</li>
+</ul>
+<p>Survivors are shaped into result objects carrying <code>_vectorScore</code> (the cosine score) plus company coords, ATS provider, experience metadata, etc.</p>
+
+<h4><code>relevanceFor(job, ...)</code> — final ranking</h4>
+<pre><code>function relevanceFor(job, primarySkills, suggestedRoles, domain) {
+  const sourceBonus = ((SOURCE_QUALITY[job.source] || 60) - 60) / 35 * 12;  // 0–12
+  if (typeof job._vectorScore === 'number') {
+    return job._vectorScore * 100 + sourceBonus;        // semantic leads (0–100), source is a small tiebreaker
+  }
+  // No vector (live-API fallback): keyword score → comparable 0–100 band + same bonus
+  const kw = scoreJob(job.title, job.location, job.source, primarySkills, suggestedRoles, domain);
+  return Math.min((kw - 60) / 110 * 100, 100) * 0.85 + sourceBonus;
+}</code></pre>
+<div class="why"><strong>Why semantic-led:</strong> when a job has a real vector score, similarity (scaled 0–100) is the primary axis and source quality contributes only ~0–12 as a tiebreaker. So a clearly better semantic match always outranks a merely better-sourced one — but among similar matches, the more trustworthy source (direct ATS &gt; aggregator) wins. Live-API jobs without a vector fall back to the keyword score, mapped into the same band so the two kinds interleave sensibly instead of clustering all-DB-then-all-API.</p></div>
+
+<h2 id="live">9. Live-API semantic filter</h2>
+<p>JSearch and the ATS boards (Greenhouse/Lever/Ashby/SmartRecruiters) are fetched in real time and aren't in the embedded DB. They're first keyword pre-filtered (<code>isTitleRelevant</code>, cheap), then <strong>semantically filtered</strong> against the same 0.62 threshold so the same relevance bar governs live and DB results alike.</p>
+<pre><code>async function semanticFilterLiveJobs(jobs, queryVector) {
+  const texts = jobs.map(buildLiveJobEmbedText);                 // title + skills + desc snippet
+  const vectors = await embed(texts, { inputType: 'document' }); // one batched call
+  const kept = [];
+  for (let i = 0; i &lt; jobs.length; i++) {
+    const score = cosineSimilarity(queryVector, vectors[i]);
+    if (score &gt;= MIN_VECTOR_SCORE) kept.push({ ...jobs[i], _vectorScore: score });
+  }
+  return kept;
+}</code></pre>
+<ul>
+  <li><strong><code>buildLiveJobEmbedText</code></strong> mirrors the document side (title leads, skills follow) so live jobs are comparable to the resume query vector.</li>
+  <li><strong>This is what stops keyword-only junk</strong> — e.g. a pentest job that passed the title filter for a React resume gets a low cosine score and is dropped.</li>
+  <li><strong>Fail-open:</strong> if embedding throws, the keyword-filtered jobs are returned unchanged — better to show them than to break the search.</li>
+  <li>DB jobs already carry <code>_vectorScore</code> from <code>searchDBJobs</code>, so they are <em>not</em> re-embedded here.</li>
+</ul>
+
+<h2 id="wiring">10. End-to-end request flow — resume → ranked jobs</h2>
+<ol>
+  <li><strong>Resume parsed</strong> (<span class="file">resumeParserService.js</span>) — an LLM extracts <code>{ domain, primarySkills, secondarySkills, roles }</code>. <code>primarySkills</code> = domain-defining tools (max 15), <code>secondarySkills</code> = general languages/tools (max 10). This profile is the raw material for the query embedding.</li>
+  <li><strong>HTTP entry</strong> (<span class="file">routes/jobs.js</span>) — the skill-search endpoint reads <code>{ skills, roles, primarySkills, secondarySkills, domain }</code> from the body and calls <code>searchJobsBySkills(...)</code>.</li>
+  <li><strong><code>searchJobsBySkills</code></strong> orchestrates:
+    <ol type="a">
+      <li>Cache check — identical recent searches return cached results (skips embedding entirely).</li>
+      <li><code>embedProfile(...)</code> — embed the resume profile <em>once</em> → query vector.</li>
+      <li><code>searchDBJobs(...)</code> — cosine scan over embedded DB jobs.</li>
+      <li>Live APIs (JSearch + ATS) fetched in parallel, keyword pre-filtered, then <code>semanticFilterLiveJobs(...)</code>.</li>
+      <li>Merge DB + surviving live jobs → <code>persistAndGroupJobs</code> groups by company &amp; ranks via <code>relevanceFor</code>.</li>
+    </ol>
+  </li>
+  <li><strong>Response</strong> — companies (with their best-ranked roles) returned to the client and cached.</li>
+</ol>
+
+<h2 id="storage">11. Storage, quota &amp; cleanup</h2>
+<p>Each embedding is 768 floats ≈ ~6 KB/job. On the free MongoDB Atlas tier (512 MB), vectors + descriptions add up, so three safeguards keep storage bounded:</p>
+<ul>
+  <li><strong><span class="file">dbQuota.js</span></strong> — <code>isQuotaError()</code> recognizes Atlas's "over space quota — writes are blocked" message so ingestion (and embedding writes) stop cleanly instead of spamming thousands of failures. <code>DbQuotaFullError</code> is thrown to abort a run at the top level.</li>
+  <li><strong><span class="file">storageCleanupService.js</span></strong> — runs daily: deletes inactive jobs past a grace period (<code>STORAGE_INACTIVE_GRACE_DAYS</code>, default 3) and hard-caps total job count (<code>STORAGE_MAX_JOBS</code>, default 40k) by trimming the oldest.</li>
+  <li><strong>Manual</strong> — deleting inactive/non-embedded jobs frees space; writes unblock once back under quota.</li>
+</ul>
+<p class="small">Note: embedding is gated on staying under quota — when the DB is full, <code>embedJobIfChanged</code>'s <code>Job.updateOne</code> fails, but it swallows the error so ingestion continues; the backfill re-fills once space is freed.</p>
+
+<h2 id="test">12. Test / diagnostic scripts</h2>
+<p class="file">server/scripts/testVectorSearch.js · run: <code>node server/scripts/testVectorSearch.js</code></p>
+<p>Runs three hardcoded sample profiles (Frontend React/TS, Data Science Python/ML, Backend Java/Spring) through the real <code>searchDBJobs</code> and prints the top 10 matches with their cosine scores. Useful for sanity-checking the corpus, the threshold, and relevance after any change to the model or embed text.</p>
+<pre><code>const results = await searchDBJobs(p.primarySkills, p.secondarySkills, p.roles, p.domain);
+results.slice(0, 10).forEach((r, i) =&gt; {
+  const score = r._vectorScore?.toFixed(3) ?? "—";
+  console.log(`  ${i+1}. [${score}] ${r.job_title} @ ${r.employer_name} (${r.source})`);
+});</code></pre>
+<p>It also prints <code>countDocuments({ embeddedAt: { $ne: null } })</code> so you can see how many jobs are actually searchable.</p>
+
+<h2 id="history">13. History — why local model, why app-side cosine</h2>
+<table>
+  <tr><th>Decision</th><th>Rationale</th></tr>
+  <tr><td><strong>Semantic over keyword</strong></td><td>Title-only keyword matching discarded skills/qualifications/description and produced false positives on shared words. Embeddings compare whole meaning.</td></tr>
+  <tr><td><strong>Local model (BGE) over hosted</strong></td><td>Hosted free tiers (Voyage, Gemini) were tried first but their daily caps couldn't keep up with the ingestion volume. The local model has no API, key, quota, or rate limit — every job in the corpus can be embedded.</td></tr>
+  <tr><td><strong>App-side cosine over Atlas <code>$vectorSearch</code></strong></td><td>Atlas Vector Search requires a paid M10+ cluster. In-process cosine runs on the free M0 tier; cheap enough at ~18k jobs.</td></tr>
+  <tr><td><strong>Asymmetric query/document</strong></td><td>BGE retrieves best with a query-instruction prefix on the search side and bare documents — handled by <code>inputType</code>.</td></tr>
+  <tr><td><strong>0.62 threshold</strong></td><td>Empirically tuned to bge-base's high similarity baseline; re-measure if the model changes.</td></tr>
+</table>
+
+<div class="note"><strong>Current state in git:</strong> the embedding files (<code>embeddingClient.js</code>, <code>jobEmbedText.js</code>, the backfill &amp; test scripts, <code>dbQuota.js</code>, <code>docs/semantic-search.md</code>) are <em>untracked / uncommitted</em> on the <code>main</code> branch — this is a newly added subsystem. The <code>Job.js</code> model and <code>skillBasedJobSearchService.js</code> are tracked and modified. The dependency <code>@xenova/transformers ^2.17.2</code> is in <code>server/package.json</code>.</div>
+
+<hr>
+<p class="small">Report covers: embeddingClient.js · jobEmbedText.js · Job.js · jobPersistence.js · backfillJobEmbeddings.js · skillBasedJobSearchService.js · routes/jobs.js · resumeParserService.js · dbQuota.js · storageCleanupService.js · testVectorSearch.js · docs/semantic-search.md.</p>
+
+</body>
+</html>

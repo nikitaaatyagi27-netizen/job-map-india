@@ -40,7 +40,15 @@ const jobSchema = new mongoose.Schema({
   parsedDescriptionAt: { type: Date, default: null },
   lastSearchedAt:      { type: Date, default: null },
   searchHitCount:      { type: Number, default: 0 },
-  applyClickCount:     { type: Number, default: 0 }
+  applyClickCount:     { type: Number, default: 0 },
+  // Semantic search: local bge-base-en-v1.5 embedding of buildEmbedText(job)
+  // (768 floats). Similarity is computed in-process via cosine (see
+  // services/skillBasedJobSearchService.js + docs/semantic-search.md), not by an
+  // Atlas Vector Search index. embedHash lets ingestion skip re-embedding a job
+  // whose searchable content hasn't changed.
+  embedding:           { type: [Number], default: null, select: false },
+  embedHash:           { type: String, default: null },
+  embeddedAt:          { type: Date, default: null }
 });
 
 jobSchema.pre("validate", function setJobIdentity() {
