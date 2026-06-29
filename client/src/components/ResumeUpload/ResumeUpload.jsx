@@ -48,13 +48,59 @@ const COMPANIES = [
   { name: 'BYJU\'S',      domain: 'byjus.com',        initials: 'By',  color: '#1c3557' },
 ];
 
-const ROW_CONFIGS = [
-  { offset: 0,  count: 18, duration: 40 },
-  { offset: 7,  count: 18, duration: 55 },
-  { offset: 14, count: 18, duration: 32 },
-  { offset: 21, count: 18, duration: 50 },
-  { offset: 4,  count: 18, duration: 38 },
-  { offset: 11, count: 18, duration: 45 },
+const ORBIT_COMPANIES = [...COMPANIES];
+
+const WALL_TILES = [
+  { x: 5, y: 8,  s: 0.95, r: -8, company: 0 },
+  { x: 12, y: 17, s: 0.76, r: 9, company: 1 },
+  { x: 21, y: 7,  s: 1.12, r: -4, company: 2 },
+  { x: 33, y: 14, s: 0.84, r: 12, company: 3 },
+  { x: 46, y: 7,  s: 0.74, r: -10, company: 4 },
+  { x: 58, y: 12, s: 1.02, r: 6, company: 5 },
+  { x: 72, y: 8,  s: 0.82, r: -7, company: 6 },
+  { x: 82, y: 16, s: 0.97, r: 11, company: 7 },
+  { x: 88, y: 7,  s: 0.66, r: -14, company: 8 },
+
+  { x: 3, y: 25,  s: 0.89, r: 13, company: 9 },
+  { x: 15, y: 31, s: 1.04, r: -6, company: 10 },
+  { x: 28, y: 27, s: 0.7, r: 9, company: 11 },
+  { x: 39, y: 26, s: 0.86, r: -12, company: 12 },
+  { x: 51, y: 24, s: 1.22, r: 5, company: 13 },
+  { x: 66, y: 27, s: 0.75, r: -8, company: 14 },
+  { x: 78, y: 25, s: 0.98, r: 10, company: 15 },
+  { x: 90, y: 29, s: 0.8, r: -5, company: 16 },
+
+  { x: 6, y: 40,  s: 1.02, r: -11, company: 17 },
+  { x: 18, y: 43, s: 0.9, r: 8, company: 18 },
+  { x: 31, y: 40, s: 0.78, r: -4, company: 19 },
+  { x: 41, y: 44, s: 1.15, r: 7, company: 20 },
+  { x: 54, y: 41, s: 0.86, r: -9, company: 21 },
+  { x: 65, y: 44, s: 0.74, r: 13, company: 22 },
+  { x: 76, y: 42, s: 0.92, r: -6, company: 23 },
+  { x: 87, y: 41, s: 0.88, r: 8, company: 24 },
+
+  { x: 4, y: 57,  s: 0.88, r: 10, company: 25 },
+  { x: 16, y: 60, s: 0.73, r: -8, company: 26 },
+  { x: 27, y: 57, s: 1.01, r: 5, company: 27 },
+  { x: 39, y: 61, s: 0.82, r: -12, company: 28 },
+  { x: 50, y: 58, s: 1.18, r: 7, company: 29 },
+  { x: 63, y: 60, s: 0.75, r: -4, company: 30 },
+  { x: 74, y: 57, s: 0.94, r: 11, company: 31 },
+  { x: 86, y: 60, s: 0.87, r: -7, company: 32 },
+
+  { x: 8, y: 75,  s: 1.06, r: -6, company: 33 },
+  { x: 22, y: 77, s: 0.75, r: 9, company: 34 },
+  { x: 35, y: 73, s: 0.9, r: -10, company: 35 },
+  { x: 49, y: 76, s: 0.7, r: 6, company: 36 },
+  { x: 61, y: 73, s: 1.0, r: -5, company: 37 },
+  { x: 75, y: 77, s: 0.82, r: 12, company: 1 },
+  { x: 89, y: 74, s: 0.96, r: -8, company: 4 },
+  { x: 13, y: 89, s: 0.84, r: 4, company: 6 },
+  { x: 29, y: 91, s: 0.68, r: -11, company: 8 },
+  { x: 44, y: 88, s: 0.92, r: 9, company: 10 },
+  { x: 57, y: 90, s: 0.78, r: -7, company: 12 },
+  { x: 71, y: 88, s: 1.04, r: 5, company: 14 },
+  { x: 84, y: 91, s: 0.72, r: -9, company: 16 },
 ];
 
 function getSlice(offset, count) {
@@ -65,13 +111,19 @@ function getSlice(offset, count) {
 
 // ── Logo chip ─────────────────────────────────────────────────────────────────
 
-const LogoChip = React.memo(function LogoChip({ company }) {
+const LogoChip = React.memo(function LogoChip({ company, compact = false }) {
   return (
     <Box sx={{
-      display: 'inline-flex', alignItems: 'center', gap: 1,
-      mx: 1.5, px: 2, py: 0.9, borderRadius: '10px', flexShrink: 0,
-      background: 'rgba(255,255,255,0.06)',
-      border: '1px solid rgba(255,255,255,0.09)',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      gap: compact ? 0 : 1,
+      mx: compact ? 0 : 1.5,
+      px: compact ? 1.3 : 2,
+      py: compact ? 0.95 : 0.9,
+      minWidth: compact ? 48 : 'auto',
+      borderRadius: compact ? '999px' : '10px', flexShrink: 0,
+      background: compact ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)',
+      border: compact ? '1px solid rgba(127,84,22,0.12)' : '1px solid rgba(255,255,255,0.09)',
+      boxShadow: compact ? '0 6px 18px rgba(127,84,22,0.1)' : 'none',
     }}>
       <img
         src={`https://logo.clearbit.com/${company.domain}`}
@@ -81,18 +133,20 @@ const LogoChip = React.memo(function LogoChip({ company }) {
           const fb = e.currentTarget.nextSibling;
           if (fb) fb.style.display = 'flex';
         }}
-        style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }}
+        style={{ width: compact ? 22 : 20, height: compact ? 22 : 20, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }}
       />
       <span style={{
-        display: 'none', width: 20, height: 20, borderRadius: 3,
+        display: 'none', width: compact ? 22 : 20, height: compact ? 22 : 20, borderRadius: 3,
         backgroundColor: company.color, alignItems: 'center', justifyContent: 'center',
         fontSize: 8, fontWeight: 800, color: 'white', flexShrink: 0,
       }}>
         {company.initials}
       </span>
-      <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-        {company.name}
-      </Typography>
+      {!compact && (
+        <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+          {company.name}
+        </Typography>
+      )}
     </Box>
   );
 });
@@ -118,55 +172,98 @@ const MarqueeRow = React.memo(function MarqueeRow({ offset, count, duration }) {
   );
 });
 
-function CompanyMarquee() {
+function OrbitRing({ companies, radius, duration, reverse = false, opacity = 1, compact = false }) {
+  const count = companies.length;
+  const step = 360 / count;
+
   return (
-    <Box sx={{
-      position: 'absolute', inset: 0, zIndex: 0,
-      display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly',
-      opacity: 0.28, pointerEvents: 'none',
-    }}>
-      {ROW_CONFIGS.map((cfg, i) => (
-        <MarqueeRow key={i} offset={cfg.offset} count={cfg.count} duration={cfg.duration} />
-      ))}
+    <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity }}>
+      <motion.div
+        animate={{ rotate: reverse ? -360 : 360 }}
+        transition={{ duration, repeat: Infinity, ease: 'linear' }}
+        style={{ position: 'absolute', inset: 0 }}
+      >
+        {companies.map((company, index) => {
+          const angle = step * index;
+          return (
+            <Box
+              key={`${company.domain}-${index}`}
+              sx={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: `rotate(${angle}deg) translateY(-${radius}px) rotate(${-angle}deg) translate(-50%, -50%)`,
+              }}
+            >
+              <LogoChip company={company} compact={compact} />
+            </Box>
+          );
+        })}
+      </motion.div>
     </Box>
   );
 }
 
-// ── Color orbs ────────────────────────────────────────────────────────────────
-
-function Orbs() {
+function LogoWall() {
   return (
-    <Box sx={{ position: 'absolute', inset: 0, zIndex: 1, overflow: 'hidden', pointerEvents: 'none' }}>
-      <motion.div
-        animate={{ x: [0, 60, -30, 0], y: [0, -80, 40, 0], scale: [1, 1.2, 0.85, 1] }}
-        transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
-        style={{
-          position: 'absolute', top: '-15%', left: '-10%',
-          width: 600, height: 600, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(99,102,241,0.5) 0%, transparent 70%)',
-          filter: 'blur(80px)',
-        }}
-      />
-      <motion.div
-        animate={{ x: [0, -70, 40, 0], y: [0, 60, -50, 0], scale: [1, 0.8, 1.2, 1] }}
-        transition={{ duration: 21, repeat: Infinity, ease: 'easeInOut' }}
-        style={{
-          position: 'absolute', bottom: '-20%', right: '-10%',
-          width: 700, height: 700, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(14,165,233,0.42) 0%, transparent 70%)',
-          filter: 'blur(90px)',
-        }}
-      />
-      <motion.div
-        animate={{ x: [0, 90, -50, 0], y: [0, -50, 80, 0], scale: [1, 1.35, 0.7, 1] }}
-        transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
-        style={{
-          position: 'absolute', top: '30%', left: '38%',
-          width: 400, height: 400, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(168,85,247,0.3) 0%, transparent 70%)',
-          filter: 'blur(70px)',
-        }}
-      />
+    <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      {WALL_TILES.map((tile, index) => {
+        const company = ORBIT_COMPANIES[tile.company % ORBIT_COMPANIES.length];
+        return (
+          <motion.div
+            key={`${company.domain}-${index}`}
+            animate={{ y: [0, -6, 0], rotate: [tile.r, tile.r + 1.5, tile.r] }}
+            transition={{ duration: 8 + (index % 5), repeat: Infinity, ease: 'easeInOut', delay: (index % 7) * 0.2 }}
+            style={{
+              position: 'absolute',
+              left: `${tile.x}%`,
+              top: `${tile.y}%`,
+              width: 72,
+              height: 72,
+              transform: `translate(-50%, -50%) rotate(${tile.r}deg) scale(${tile.s})`,
+            }}
+          >
+            <Box sx={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+            }}>
+              <img
+                src={`https://logo.clearbit.com/${company.domain}`}
+                alt={company.name}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  const fb = e.currentTarget.nextSibling;
+                  if (fb) fb.style.display = 'flex';
+                }}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  display: 'block',
+                  filter: 'none',
+                }}
+              />
+              <span style={{
+                display: 'none',
+                width: '100%',
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: company.color,
+                fontWeight: 800,
+                fontSize: 18,
+                background: 'transparent',
+              }}>
+                {company.initials}
+              </span>
+            </Box>
+          </motion.div>
+        );
+      })}
     </Box>
   );
 }
@@ -288,17 +385,11 @@ const ResumeUpload = ({ onSkillsExtracted }) => {
     <Box sx={{
       height: '100vh', width: '100vw',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #060b18 0%, #0b1535 50%, #080f20 100%)',
+      background: 'radial-gradient(circle at top, #fff5bf 0%, #f9e69a 35%, #f4d97a 68%, #efcc61 100%)',
       position: 'relative', overflow: 'hidden',
     }}>
-      <CompanyMarquee />
-      <Orbs />
-
-      {/* Dark radial vignette — dims edges, keeps center readable */}
-      <Box sx={{
-        position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 55% 65% at 50% 50%, transparent 20%, rgba(6,11,24,0.88) 100%)',
-      }} />
+      <LogoWall />
+      <Box sx={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(255,248,216,0.18) 0%, rgba(255,248,216,0.06) 100%)' }} />
 
       <Box sx={{ position: 'relative', zIndex: 3, width: '100%' }}>
         <AnimatePresence mode="wait">
@@ -313,121 +404,31 @@ const ResumeUpload = ({ onSkillsExtracted }) => {
               transition={{ duration: 0.5, ease: 'easeOut' }}
               style={{ display: 'flex', justifyContent: 'center' }}
             >
-              <Box sx={{ textAlign: 'center', color: 'white', px: 2, maxWidth: 560 }}>
-
-                {/* Title: "No human is limited." */}
-                <motion.div
-                  variants={{ visible: { transition: { staggerChildren: 0.15 } } }}
-                  initial="hidden"
-                  animate="visible"
-                  style={{ marginBottom: 14 }}
-                >
-                  {[
-                    { word: 'No',       plain: true  },
-                    { word: 'human',    plain: true  },
-                    { word: 'is',       plain: true  },
-                    { word: 'limited.', plain: false },
-                  ].map(({ word, plain }, i) => (
-                    <motion.span
-                      key={i}
-                      variants={{
-                        hidden: { opacity: 0, y: 50, rotateX: -40 },
-                        visible: {
-                          opacity: 1, y: 0, rotateX: 0,
-                          transition: { type: 'spring', damping: 10, stiffness: 90 },
-                        },
-                      }}
-                      style={{
-                        display: 'inline-block',
-                        fontSize: 52, fontWeight: 800,
-                        marginRight: '0.3em',
-                        background: plain ? undefined : 'linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6)',
-                        WebkitBackgroundClip: plain ? undefined : 'text',
-                        WebkitTextFillColor: plain ? undefined : 'transparent',
-                        backgroundClip: plain ? undefined : 'text',
-                        color: plain ? 'white' : undefined,
+              <Box sx={{ position: 'relative', width: '100%', height: '100vh' }}>
+                <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
+                  <Box sx={{ textAlign: 'center', px: 2 }}>
+                    <Button
+                      variant="contained"
+                      size="large"
+                      onClick={() => !loading && inputRef.current?.click()}
+                      sx={{
+                        background: 'linear-gradient(135deg, #7f5404 0%, #b7791f 100%)',
+                        color: '#fff8e1',
+                        fontWeight: 800,
+                        px: 5,
+                        py: 1.4,
+                        borderRadius: 999,
+                        boxShadow: '0 14px 30px rgba(127,84,22,0.22)',
+                        '&:hover': { background: 'linear-gradient(135deg, #6b4300 0%, #a16207 100%)' },
                       }}
                     >
-                      {word}
-                    </motion.span>
-                  ))}
-                </motion.div>
-
-                {/* Subtitle */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.72, duration: 0.6 }}
-                >
-                  <Typography variant="h6" sx={{ mb: 5, opacity: 0.65, fontWeight: 300, lineHeight: 1.5 }}>
-                    Upload your resume — see every company hiring for your skills across India
-                  </Typography>
-                </motion.div>
-
-                {/* Upload area — no box, content floats directly */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 1.05, type: 'spring', damping: 14 }}
-                  onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                  onDragLeave={() => setDragging(false)}
-                  onDrop={onDrop}
-                  onClick={() => !loading && inputRef.current?.click()}
-                  style={{ cursor: loading ? 'default' : 'pointer' }}
-                >
-                  {loading ? (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1.1, repeat: Infinity, ease: 'linear' }}
-                        style={{
-                          width: 56, height: 56,
-                          border: '3px solid rgba(255,255,255,0.1)',
-                          borderTopColor: '#60a5fa',
-                          borderRadius: '50%',
-                        }}
-                      />
-                      <motion.div
-                        animate={{ opacity: [0.4, 1, 0.4] }}
-                        transition={{ duration: 1.6, repeat: Infinity }}
-                      >
-                        <Typography sx={{ color: 'white', fontWeight: 500, fontSize: 16 }}>
-                          Analyzing your resume...
-                        </Typography>
-                      </motion.div>
-                    </Box>
-                  ) : (
-                    <Box>
-                      <UploadIcon dragging={dragging} />
-                      <Typography variant="h6" sx={{ color: 'white', fontWeight: 600, mb: 0.75 }}>
-                        Drop your resume here
-                      </Typography>
-                      <Typography sx={{ color: 'rgba(255,255,255,0.45)', mb: 3.5, fontSize: 14 }}>
-                        PDF or Word document
-                      </Typography>
-                      <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }} style={{ display: 'inline-block' }}>
-                        <Button
-                          variant="contained"
-                          size="large"
-                          sx={{
-                            background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                            color: 'white', fontWeight: 700, px: 5, borderRadius: 3,
-                            boxShadow: '0 4px 24px rgba(59,130,246,0.45)',
-                            '&:hover': { background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)' },
-                          }}
-                        >
-                          Browse File
-                        </Button>
-                      </motion.div>
-                    </Box>
-                  )}
-                </motion.div>
-
-                {error && (
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <Typography sx={{ color: '#ff8a80', mt: 2.5, fontWeight: 500 }}>{error}</Typography>
-                  </motion.div>
-                )}
+                      Browse Resume
+                    </Button>
+                    {error && (
+                      <Typography sx={{ color: '#9a3412', mt: 2.5, fontWeight: 600 }}>{error}</Typography>
+                    )}
+                  </Box>
+                </Box>
 
                 <input
                   ref={inputRef} type="file" accept=".pdf,.doc,.docx"
