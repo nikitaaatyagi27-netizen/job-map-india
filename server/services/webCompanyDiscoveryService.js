@@ -393,10 +393,18 @@ async function discoverWebCompanies() {
     throw new Error("SERPER_API_KEY is required for web company discovery");
   }
 
-  const discoveryQueries = await getDiscoveryQueries(
+  let discoveryQueries = await getDiscoveryQueries(
     "web-company",
     await buildFallbackDiscoveryQueries()
   );
+
+  // Optional cap for test runs — DISCOVERY_MAX_QUERIES=10 runs only the first 10
+  // queries (saves Serper credits while you check quality). Unset = run all.
+  const maxQueries = Number(process.env.DISCOVERY_MAX_QUERIES || 0);
+  if (maxQueries > 0 && discoveryQueries.length > maxQueries) {
+    console.log(`[WEB COMPANY DISCOVERY] Limiting to ${maxQueries} queries (DISCOVERY_MAX_QUERIES)`);
+    discoveryQueries = discoveryQueries.slice(0, maxQueries);
+  }
 
   if (discoveryQueries.length === 0) {
     console.log("[WEB COMPANY DISCOVERY] No active discovery queries configured");

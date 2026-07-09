@@ -16,6 +16,7 @@ const { cleanCompanyNameOrUnknown, isGenericCompanyName } = require("../utils/cl
 const { upsertIngestedJob } = require("../utils/jobPersistence");
 const { isGarbageCompanyName } = require("../utils/companyNameValidator");
 const { extractIndianCityCoords } = require("../utils/indiaLocation");
+const { isQuotaError } = require("../utils/dbQuota");
 
 // ---- city + role catalog ----
 const CITY_BUCKETS = [
@@ -128,6 +129,11 @@ function normalizeSlug(value) {
 }
 
 function buildBalancedCityRun() {
+  // Optional override: NAUKRI_CITIES="Bengaluru,Mumbai,Delhi" runs only those
+  // cities (e.g. tier-1 only). Falls back to the balanced full-catalog run.
+  const override = (process.env.NAUKRI_CITIES || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (override.length) return override;
+
   const buckets = CITY_BUCKETS.map(b => b.cities.filter(Boolean));
   const total = buckets.reduce((n, b) => n + b.length, 0);
   if (DEFAULT_CITY_RUN_SIZE >= total) {
@@ -172,7 +178,11 @@ async function fetchApiPage(role, city, pageNo) {
     seoKey,
     src: "jobsearchDesk",
     latLong: "",
-    experience: ""
+    experience: "",
+    // sort=f → freshness (newest first). Verified against the API: without it
+    // Naukri sorts by relevance and mixes in weeks-old jobs; with it the most
+    // recently-posted jobs come first.
+    sort: "f"
   };
 
   try {
@@ -307,7 +317,10 @@ function mapApiJob(raw, city) {
       : null
   );
 
-  const postedDate = raw.date ? new Date(raw.date * 1000) : null;
+  // Naukri exposes the posting date as `addDate` ("13 Jun") and a numeric
+  // days-ago as `dateAdded` ("0"). The old code read `raw.date` which doesn't
+  // exist (always null), so Naukri jobs had no posted date. Parse addDate.
+  const postedDate = parseNaukriAddDate(raw.addDate);
 
   return {
     title:       raw.post || null,
@@ -319,6 +332,22 @@ function mapApiJob(raw, city) {
     yearsMin:    raw.minExp ?? null,
     yearsMax:    raw.maxExp ?? null
   };
+}
+
+// "13 Jun" → Date. No year in the string, so assume current year; if that would
+// be in the future (e.g. "30 Dec" seen in early Jan), roll back to last year.
+const MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+function parseNaukriAddDate(addDate) {
+  if (!addDate || typeof addDate !== "string") return null;
+  const m = addDate.trim().match(/^(\d{1,2})\s+([A-Za-z]{3})/);
+  if (!m) return null;
+  const day = parseInt(m[1], 10);
+  const mon = MONTHS[m[2].toLowerCase()];
+  if (mon == null || !day) return null;
+  const now = new Date();
+  let d = new Date(now.getFullYear(), mon, day);
+  if (d > now) d = new Date(now.getFullYear() - 1, mon, day); // year-boundary
+  return d;
 }
 
 async function sendCircuitBreakerAlert() {
@@ -362,6 +391,7 @@ async function fetchNaukriJobs(options = {}) {
 
   const stats = { rawJobs: 0, savedJobs: 0, queriesRun: 0, pagesFetched: 0 };
   let hitRateLimit = false;
+  let dbFull = false;
 
   outer: for (const city of cities) {
     for (const role of ROLES) {
@@ -387,6 +417,12 @@ async function fetchNaukriJobs(options = {}) {
             const saved = await saveJob(jobData, city);
             if (saved) stats.savedJobs++;
           } catch (err) {
+            if (isQuotaError(err)) {
+              console.error("\n[DB FULL] ❌ MongoDB storage quota is full — writes are blocked. Stopping ingestion.");
+              console.error("[DB FULL] Free space (delete old/inactive jobs) or upgrade the Atlas tier, then re-run.\n");
+              dbFull = true;
+              break outer;
+            }
             console.log(`[NAUKRI] Persist failed: ${err.message}`);
           }
         }
@@ -410,7 +446,7 @@ async function fetchNaukriJobs(options = {}) {
   }
 
   console.log(
-    `[NAUKRI] Done | queries: ${stats.queriesRun} | pages: ${stats.pagesFetched} | raw: ${stats.rawJobs} | saved: ${stats.savedJobs}`
+    `[NAUKRI] Done${dbFull ? " (STOPPED — DB full)" : ""} | queries: ${stats.queriesRun} | pages: ${stats.pagesFetched} | raw: ${stats.rawJobs} | saved: ${stats.savedJobs}`
   );
   return stats.savedJobs;
 }

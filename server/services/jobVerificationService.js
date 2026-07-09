@@ -42,7 +42,7 @@ async function isJobLive(applyLink) {
       timeout: REQUEST_TIMEOUT_MS,
       validateStatus: () => true,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; JobBot/1.0)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,*/*"
       }
     });
@@ -81,21 +81,29 @@ async function runConcurrent(tasks, concurrency) {
 async function runJobVerification(options = {}) {
   const logger = options.logger || console;
   const dryRun = options.dryRun || false;
+  // minAgeDays overrides the default age gate. The cron uses 3 (skip fresh jobs
+  // just confirmed live by ingestion). A manual run can pass 0 to check EVERY
+  // active aggregator job regardless of age.
+  const minAgeDays = options.minAgeDays != null ? options.minAgeDays : MIN_AGE_DAYS;
 
-  const cutoff = new Date(Date.now() - MIN_AGE_DAYS * 24 * 60 * 60 * 1000);
-
-  // Only check aggregator jobs older than MIN_AGE_DAYS that are still marked active
-  const jobs = await Job.find({
+  // Base filter: active aggregator jobs with an apply link.
+  const query = {
     isActive: true,
     source: { $in: VERIFIABLE_SOURCES },
-    applyLink: { $exists: true, $ne: null },
-    $or: [
+    applyLink: { $exists: true, $ne: null }
+  };
+  // Apply the age gate only when minAgeDays > 0.
+  if (minAgeDays > 0) {
+    const cutoff = new Date(Date.now() - minAgeDays * 24 * 60 * 60 * 1000);
+    query.$or = [
       { lastSeenAt: { $lt: cutoff } },
       { lastSeenAt: { $exists: false }, firstSeenAt: { $lt: cutoff } }
-    ]
-  }).select("_id applyLink source title").lean();
+    ];
+  }
 
-  logger.log(`[JOB VERIFY] Found ${jobs.length} jobs to verify (sources: ${VERIFIABLE_SOURCES.join(", ")}, older than ${MIN_AGE_DAYS}d)`);
+  const jobs = await Job.find(query).select("_id applyLink source title").lean();
+
+  logger.log(`[JOB VERIFY] Found ${jobs.length} jobs to verify (sources: ${VERIFIABLE_SOURCES.join(", ")}${minAgeDays > 0 ? `, older than ${minAgeDays}d` : ", ALL ages"})`);
 
   if (jobs.length === 0) {
     logger.log("[JOB VERIFY] Nothing to verify.");

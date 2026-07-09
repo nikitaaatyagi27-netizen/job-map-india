@@ -5,7 +5,29 @@ export const SOURCE_LABELS = {
   smartrecruiters: 'SmartRecruiters',
   jsearch:         'JSearch',
   naukri:          'Naukri',
+  adzuna:          'Adzuna',
+  workday:         'Workday',
+  taleo:           'Taleo',
+  successfactors:  'SuccessFactors',
+  universal:       'Company site',
+  youtube:         'YouTube',
   db:              'Database',
+};
+
+// Per-source chip colors so each source is visually distinct at a glance.
+// { bg, color, border }
+export const SOURCE_CHIP_COLORS = {
+  naukri:          { bg: '#422006', color: '#fbbf24', border: '#a16207' },
+  jsearch:         { bg: '#0c1a2e', color: '#60a5fa', border: '#1e40af' },
+  adzuna:          { bg: '#1a0e2e', color: '#c084fc', border: '#7c3aed' },
+  workday:         { bg: '#0c2a1e', color: '#34d399', border: '#047857' },
+  greenhouse:      { bg: '#052e16', color: '#4ade80', border: '#15803d' },
+  lever:           { bg: '#172554', color: '#93c5fd', border: '#2563eb' },
+  ashby:           { bg: '#1e1b4b', color: '#a5b4fc', border: '#4f46e5' },
+  smartrecruiters: { bg: '#2e1065', color: '#c4b5fd', border: '#6d28d9' },
+  universal:       { bg: '#2a1a0c', color: '#fdba74', border: '#c2410c' },
+  youtube:         { bg: '#450a0a', color: '#fca5a5', border: '#b91c1c' },
+  db:              { bg: '#0f172a', color: '#94a3b8', border: '#334155' },
 };
 
 export const ATS_COLORS = {

@@ -1,15 +1,24 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const mongoose = require('mongoose');
-const axios = require('axios');
+const { callLLM } = require('../utils/groqClient');
 
 const BATCH_SIZE = 15; // names per LLM call
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = process.env.SCRAPER_LLM_MODEL || 'google/gemini-flash-1.5';
 
 async function classifyBatch(names) {
-  const prompt = `You are a company validator. Given the list below, classify each entry as either:
-- "real" — it is a genuine company (tech, software, startup, MNC, etc.)
-- "garbage" — it is a job title, search query, generic phrase, aggregator name, or clearly not a company name
+  const prompt = `You are validating company names from an Indian job site. Be CONSERVATIVE:
+when in doubt, mark "real". Many real companies are small, obscure, single-word, or
+oddly-spelled — that is NORMAL and they should be kept as "real".
+
+Mark "garbage" ONLY when the entry is CLEARLY not a company, i.e. it is obviously:
+- a job title or role ("Software Engineer", "Backend Developer", "Data Analyst")
+- a search query or generic phrase ("Top IT Companies in Pune", "MNC jobs", "Work From Home", "Hiring Now")
+- an individual person's full name used as the employer (a recruiter), e.g. "Pinky Kapoor", "Rahul Sharma"
+  — but DO NOT flag a company merely because it contains a surname (e.g. "Tata", "Mahindra", "Larsen Toubro" are REAL)
+- a placeholder ("Confidential", "Undisclosed", "Client of ...", "A Leading MNC")
+- a pure job-board/aggregator name ("Naukri", "Indeed", "LinkedIn")
+
+If the name is just an unfamiliar, small, single-word, or strange-sounding business
+name, mark it "real". Do NOT mark something garbage just because you don't recognize it.
 
 Reply ONLY with a JSON array in this exact format (same order as input):
 [{"name":"...", "verdict":"real"}, {"name":"...", "verdict":"garbage"}, ...]
@@ -17,24 +26,8 @@ Reply ONLY with a JSON array in this exact format (same order as input):
 Company list:
 ${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}`;
 
-  const res = await axios.post(
-    OPENROUTER_API_URL,
-    {
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      max_tokens: 2000
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 60000
-    }
-  );
-
-  const raw = res.data.choices?.[0]?.message?.content || '';
+  // Uses the shared LLM client: Groq (free/fast) → Gemini → OpenRouter fallback.
+  const raw = await callLLM([{ role: 'user', content: prompt }], { temperature: 0, max_tokens: 2000 });
 
   // Strip code fences if present
   const stripped = raw.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
@@ -45,6 +38,8 @@ ${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}`;
 }
 
 const DRY_RUN = process.argv.includes('--dry-run');
+// --source=naukri restricts validation to companies discovered from that source.
+const SOURCE_ARG = (process.argv.find(a => a.startsWith('--source=')) || '').split('=')[1] || null;
 
 async function run() {
   await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 15000 });
@@ -54,8 +49,10 @@ async function run() {
   const Job = mongoose.model('Job', new mongoose.Schema({}, { strict: false }), 'jobs');
   const CareerSource = mongoose.model('CareerSource', new mongoose.Schema({}, { strict: false }), 'careersources');
 
-  const all = await Company.find({}, { _id: 1, name: 1, domain: 1 }).lean();
-  console.log(`Total companies to validate: ${all.length}`);
+  // Filter by source when requested (e.g. only Naukri-discovered companies).
+  const filter = SOURCE_ARG ? { source: SOURCE_ARG } : {};
+  const all = await Company.find(filter, { _id: 1, name: 1, domain: 1 }).lean();
+  console.log(`Total companies to validate${SOURCE_ARG ? ` (source=${SOURCE_ARG})` : ''}: ${all.length}`);
 
   const garbageIds = [];
   const garbageNames = [];
@@ -80,19 +77,24 @@ async function run() {
     }
     if (!success) { console.log('  Skipping batch after 3 attempts.'); continue; }
 
-    let garbageInBatch = 0;
+    const batchGarbage = [];
     for (const result of results) {
       if (result.verdict === 'garbage') {
         const company = batch.find(c => c.name === result.name);
         if (company) {
           garbageIds.push(company._id);
           garbageNames.push(company.name);
-          garbageInBatch++;
+          batchGarbage.push(company.name);
         }
       }
     }
 
-    console.log(`found ${garbageInBatch} garbage`);
+    // Print the flagged names inline so you can see them live (and Ctrl+C early).
+    if (batchGarbage.length) {
+      console.log(`found ${batchGarbage.length} garbage: ${batchGarbage.map(n => `"${n}"`).join(', ')}`);
+    } else {
+      console.log('found 0 garbage');
+    }
 
     // Delay to avoid rate limiting
     await new Promise(r => setTimeout(r, 2500));

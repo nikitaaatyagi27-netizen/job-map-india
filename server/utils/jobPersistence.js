@@ -2,6 +2,36 @@ const Job = require("../models/Job");
 const { buildJobIdentity } = require("./jobIdentity");
 const { classifyExperienceLevel, extractYearsRange } = require("./experienceLevelClassifier");
 const { parseJobDescription } = require("./jobDescriptionParser");
+const { embed } = require("./embeddingClient");
+const { buildEmbedText, embedTextHash } = require("./jobEmbedText");
+
+/**
+ * Generate and persist the semantic-search embedding for a job. Embeds every
+ * job (no time window) whose searchable content changed (embedHash differs).
+ * Failures are swallowed — a missing embedding must never break ingestion; the
+ * backfill script can fill gaps later.
+ */
+async function embedJobIfChanged(job) {
+  try {
+    // No time window — every ingested job gets embedded (local model, no quota),
+    // so the whole corpus is semantically searchable and relevance, not age,
+    // decides what surfaces.
+    const text = buildEmbedText(job);
+    if (!text) return;
+    const hash = embedTextHash(text);
+    if (job.embedHash === hash && job.embeddedAt) return;
+
+    const vector = await embed(text, { inputType: "document" });
+    if (!Array.isArray(vector)) return;
+
+    await Job.updateOne(
+      { _id: job._id },
+      { $set: { embedding: vector, embedHash: hash, embeddedAt: new Date() } }
+    );
+  } catch (err) {
+    console.warn(`[EMBED] Skipped job ${job?._id}:`, err?.response?.status || err?.message);
+  }
+}
 
 async function touchExistingJob(job, updates = {}) {
   let changed = false;
@@ -47,6 +77,9 @@ async function touchExistingJob(job, updates = {}) {
   if (changed) {
     await job.save();
   }
+
+  // Re-embed if content (e.g. a newly-filled description) changed it.
+  await embedJobIfChanged(job);
 
   return job;
 }
@@ -141,6 +174,11 @@ async function upsertIngestedJob(payload) {
     setDefaultsOnInsert: true,
     runValidators: true
   });
+
+  // Refresh the semantic-search vector when the job's content changed.
+  // Awaited so a job is never returned as searchable before it can be matched;
+  // embedJobIfChanged swallows its own errors so this can't break ingestion.
+  await embedJobIfChanged(updatedJob);
 
   return updatedJob;
 }

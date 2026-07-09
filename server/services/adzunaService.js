@@ -64,6 +64,13 @@ const CITIES = [
   "India" // catch-all final pass
 ];
 
+// Optional override: ADZUNA_CITIES="Bangalore,Mumbai,Delhi" runs only those
+// cities (e.g. tier-1 only). Falls back to the full CITIES list above.
+const ACTIVE_CITIES = (() => {
+  const override = (process.env.ADZUNA_CITIES || "").split(",").map(s => s.trim()).filter(Boolean);
+  return override.length ? override : CITIES;
+})();
+
 const TECH_TITLE_KEYWORDS = [
   "engineer",
   "developer",
@@ -125,17 +132,23 @@ async function isAdzunaJobLive(redirectUrl) {
       maxRedirects: 10,
       timeout: 8000,
       validateStatus: () => true,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; JobBot/1.0)" }
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
     });
 
+    // Only 404/410 mean the job is genuinely GONE.
     if (res.status === 404 || res.status === 410) {
       deadLinkCache.add(redirectUrl);
       return false;
     }
 
+    // 403 / other 4xx-5xx = Adzuna's anti-bot block or a transient error, NOT a
+    // dead job. Treat as live (give the job the benefit of the doubt) — same
+    // philosophy as the network-error fallback below. The nightly
+    // jobVerificationService catches genuinely-dead links across all sources.
     if (res.status >= 400) {
-      deadLinkCache.add(redirectUrl);
-      return false;
+      return true;
     }
 
     const body = typeof res.data === "string" ? res.data.toLowerCase() : "";
@@ -296,7 +309,8 @@ const fetchAdzunaJobs = async () => {
   };
 
   let skipped = 0;
-  outer: for (const city of CITIES) {
+  console.log(`[ADZUNA] Cities: ${ACTIVE_CITIES.length} (${ACTIVE_CITIES.join(", ")})`);
+  outer: for (const city of ACTIVE_CITIES) {
     for (const query of TECH_QUERIES) {
       if (zeroResultPairs.has(`${city}|${query}`)) {
         skipped++;

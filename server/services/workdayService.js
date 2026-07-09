@@ -201,9 +201,25 @@ async function callWorkdayJobsApi(config, body, maxRetries = 3) {
         throw new Error(`Workday API ${response.status} for ${url}`);
       }
 
+      // Workday's CXS API returns JSON. If we get an HTML page instead, Workday
+      // is either down for maintenance or the endpoint is blocked — NOT "0 jobs".
+      // Detect this so the run reports it clearly instead of misleading counts.
+      const ct = response.headers?.["content-type"] || "";
+      const isHtml = ct.includes("html") || (typeof response.data === "string" && response.data.trimStart().startsWith("<"));
+      if (isHtml) {
+        const body = typeof response.data === "string" ? response.data : "";
+        const maintenance = /currently unavailable|planned maintenance|under maintenance/i.test(body);
+        const err = new Error(maintenance ? "WORKDAY_MAINTENANCE" : "WORKDAY_HTML_BLOCKED");
+        err.workdayDown = true;
+        err.maintenance = maintenance;
+        throw err;
+      }
+
       return response.data || {};
     } catch (err) {
       lastError = err;
+      // Workday-wide down (maintenance/blocked) — won't recover by retrying.
+      if (err.workdayDown) throw err;
       // 4xx = bad tenant config, not a transient error — don't retry
       if (err.response?.status >= 400 && err.response?.status < 500) throw err;
       if (attempt < maxRetries - 1) {
@@ -609,6 +625,17 @@ async function fetchWorkdayJobs() {
       const ingestedCount = await ingestWorkdayTenant(config);
       totalIndiaJobs += ingestedCount;
     } catch (error) {
+      // Workday-wide outage (maintenance / blocked) affects every tenant — no
+      // point hammering the other 150 boards. Report clearly and stop.
+      if (error.workdayDown) {
+        console.warn(
+          error.maintenance
+            ? "\n[WORKDAY] ⏸️  Workday is down for planned maintenance — stopping run. Job data is unavailable site-wide; re-run after the maintenance window."
+            : "\n[WORKDAY] ⚠️  Workday returned a non-JSON (blocked) response site-wide — stopping run. Try again later."
+        );
+        break;
+      }
+
       const boardUrl = buildListingPageUrl(config);
       const companyLabel = config.companyName || boardUrl;
       const classified = classifyWorkdayError(error);

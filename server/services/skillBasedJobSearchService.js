@@ -14,8 +14,14 @@ const {
 } = require('../utils/indiaLocation');
 const resolveLogo = require('../utils/logoResolver');
 const { getCachedResults, setCachedResults } = require('./searchCacheService');
+const { embed } = require('../utils/embeddingClient');
+const { buildProfileEmbedText } = require('../utils/jobEmbedText');
 
 const JSEARCH_URL = 'https://jsearch.p.rapidapi.com/search';
+
+// Max JSearch queries per skill-search (1 query = 1 API call). Kept low for the
+// free RapidAPI tier; raise via JSEARCH_QUERY_LIMIT if you upgrade the plan.
+const JSEARCH_QUERY_LIMIT = Number(process.env.JSEARCH_QUERY_LIMIT || 3);
 
 const isIndia = (str) => isIndianLocation(str, { hasIndianPresence: true });
 
@@ -64,20 +70,26 @@ function buildQueries(skills, roles) {
   queries.add(`fresher software developer India`);
   queries.add(`junior developer India`);
 
-  return Array.from(queries).slice(0, 1);
+  // Cap how many queries hit JSearch — each query is 1 API call, and the free
+  // RapidAPI tier is very limited. 3 covers the top role + best skill-combo
+  // queries (the Set is insertion-ordered, so roles come first) without burning
+  // quota. searchAllJSearch also halts instantly on a 429 as a backstop.
+  // The DB semantic search is the primary source; JSearch only supplements.
+  return Array.from(queries).slice(0, JSEARCH_QUERY_LIMIT);
 }
 
 // ─── Relevance scoring ────────────────────────────────────────────────────────
 
+const SOURCE_QUALITY = {
+  greenhouse: 90, lever: 90, ashby: 90, smartrecruiters: 88,
+  workday: 95, naukri: 75, jsearch: 70, adzuna: 68
+};
+
 function scoreJob(title, location, source, primarySkills, suggestedRoles, domain) {
   let score = 0;
   const t = (title || '').toLowerCase();
-  const sourceQuality = {
-    greenhouse: 90, lever: 90, ashby: 90, smartrecruiters: 88,
-    workday: 95, naukri: 75, jsearch: 70, adzuna: 68
-  };
 
-  score += (sourceQuality[source] || 60);
+  score += (SOURCE_QUALITY[source] || 60);
 
   for (const role of suggestedRoles) {
     const roleLower = role.toLowerCase().replace(/[()]/g, '').trim();
@@ -95,6 +107,27 @@ function scoreJob(title, location, source, primarySkills, suggestedRoles, domain
   }
 
   return score;
+}
+
+// Semantic-led relevance (Option 1): when a job has a real vector score (DB
+// jobs), similarity is the primary axis — scaled to 0–100 — and source quality
+// is only a small tiebreaker (0–~12). So a clearly-better semantic match always
+// outranks a merely better-sourced one, but among similar matches the more
+// trustworthy source (direct ATS > aggregator) wins.
+//
+// Live-API jobs have no vector; they fall back to the keyword scoreJob, mapped
+// into a comparable band so the two kinds interleave sensibly rather than
+// clustering all-DB-then-all-API.
+function relevanceFor(job, primarySkills, suggestedRoles, domain) {
+  const sourceBonus = ((SOURCE_QUALITY[job.source] || 60) - 60) / 35 * 12; // 0–12
+
+  if (typeof job._vectorScore === 'number') {
+    return job._vectorScore * 100 + sourceBonus;
+  }
+
+  // No vector (live-API job): keyword score (~60–170) → ~0–100 band + same bonus.
+  const kw = scoreJob(job.title, job.location, job.source, primarySkills, suggestedRoles, domain);
+  return Math.min((kw - 60) / 110 * 100, 100) * 0.85 + sourceBonus;
 }
 
 // ─── Concurrency helper ───────────────────────────────────────────────────────
@@ -231,7 +264,11 @@ async function searchAllJSearch(queries) {
             'X-RapidAPI-Key':   process.env.RAPID_API_KEY,
             'X-RapidAPI-Host':  'jsearch.p.rapidapi.com'
           },
-          params: { query, num_pages: 1, page, date_posted: 'month' },
+          // 'week' (not 'month') — JSearch aggregates loosely and often lists
+          // jobs that are already closed. Restricting to the last 7 days greatly
+          // reduces stale/closed listings reaching the user. Override with
+          // JSEARCH_DATE_POSTED if needed.
+          params: { query, num_pages: 1, page, date_posted: process.env.JSEARCH_DATE_POSTED || 'week' },
           timeout: 20000
         });
         return res.data?.data || [];
@@ -378,24 +415,100 @@ async function searchSmartRecruiters(skills) {
 
 // ─── DB search ────────────────────────────────────────────────────────────────
 
-async function searchDBJobs(primarySkills, secondarySkills, suggestedRoles, domain) {
-  const isSpecialized = domain && !GENERIC_DOMAINS.has(domain);
+// Minimum cosine similarity for a job to count as a match. Tuned to 0.62 for the
+// local bge-base-en-v1.5 model: its score distribution has a high baseline
+// (~0.50–0.60 for *unrelated* professional text — sales/HR/procurement roles
+// scored 0.50–0.60 against a React resume in testing), with real signal starting
+// ~0.62+. 0.62 cuts that noise while keeping recall for thin/niche domains.
+// Re-measure if the embedding model changes — thresholds are model-specific.
+const MIN_VECTOR_SCORE = Number(process.env.JOB_VECTOR_MIN_SCORE || 0.62);
+// Cap on how many ranked matches we return to the rest of the pipeline.
+const VECTOR_TOP_K = Number(process.env.JOB_VECTOR_TOP_K || 300);
 
-  const normalizeForRegex = (t) => {
-    const stripped = t.replace(/\.(js|ts|jsx|tsx)$/i, '');
-    return stripped.length >= 2 ? stripped : t;
-  };
+// Cosine similarity between two equal-length vectors. Runs in-process — no Atlas
+// Vector Search index required, so this works on any cluster tier (incl. free M0).
+function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return -1;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na  += a[i] * a[i];
+    nb  += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return -1;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
 
-  const roleTokens  = suggestedRoles.flatMap(r => extractRoleTokens(r));
-  const skillTerms  = isSpecialized
-    ? primarySkills.map(s => s.toLowerCase())
-    : [...primarySkills, ...secondarySkills].map(s => s.toLowerCase());
+// Build the searchable text for a LIVE-API job (JSearch/ATS). These don't go
+// through ingestion's buildEmbedText, and ATS jobs often have only a title, so
+// we assemble from whatever fields are present. Mirrors the document side
+// (title leads, skills follow) so it's comparable to the resume query embedding.
+function buildLiveJobEmbedText(job) {
+  const parts = [];
+  if (job.job_title) parts.push(job.job_title);
+  if (Array.isArray(job._requiredSkills) && job._requiredSkills.length) {
+    parts.push(`Skills: ${job._requiredSkills.join(', ')}`);
+  }
+  if (job._description) parts.push(String(job._description).slice(0, 1500));
+  return parts.join('\n').trim();
+}
 
-  const allTerms    = [...new Set([...roleTokens, ...skillTerms].map(normalizeForRegex))].filter(t => t.length > 2);
-  const regexParts  = allTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const titleRegex  = new RegExp(regexParts.join('|'), 'i');
+// Semantically filter + score live-API jobs against the resume query vector,
+// applying the SAME threshold the DB path uses. This is what stops keyword-only
+// junk (e.g. pentest jobs for a React resume) from reaching the user: low cosine
+// similarity → dropped. Jobs that survive get a _vectorScore so they rank on the
+// same scale as DB jobs. Embeds in one batched call for speed.
+async function semanticFilterLiveJobs(jobs, queryVector) {
+  if (!jobs.length || !Array.isArray(queryVector)) return jobs;
 
-  console.log(`[SKILL SEARCH DB] Terms (${allTerms.length}): ${allTerms.join(', ')}`);
+  const texts = jobs.map(buildLiveJobEmbedText);
+  let vectors;
+  try {
+    vectors = await embed(texts, { inputType: 'document' });
+  } catch (err) {
+    // If embedding fails, fall back to returning the keyword-filtered jobs
+    // unchanged — better to show them than to break the search.
+    console.warn('[SKILL SEARCH LIVE] Semantic filter skipped (embed failed):', err?.message);
+    return jobs;
+  }
+
+  const kept = [];
+  for (let i = 0; i < jobs.length; i++) {
+    const score = cosineSimilarity(queryVector, vectors[i]);
+    if (score >= MIN_VECTOR_SCORE) {
+      kept.push({ ...jobs[i], _vectorScore: score });
+    }
+  }
+  return kept;
+}
+
+// Embed the resume/skill profile into a query vector. Returns null if the
+// profile is empty or embedding fails. Shared by searchDBJobs and the live-API
+// filter so the profile is embedded only once per search.
+async function embedProfile(primarySkills, secondarySkills, suggestedRoles, domain) {
+  const profileText = buildProfileEmbedText({
+    primarySkills, secondarySkills, roles: suggestedRoles, domain
+  });
+  if (!profileText) return null;
+  try {
+    console.log(`[SKILL SEARCH DB] Vector query: ${profileText.replace(/\n/g, ' | ')}`);
+    return await embed(profileText, { inputType: 'query' });
+  } catch (err) {
+    console.error('[SKILL SEARCH DB] Embedding failed:', err?.response?.status || err?.message);
+    return null;
+  }
+}
+
+// `queryVector` may be passed in (precomputed by the caller) to avoid embedding
+// the same profile twice per search; otherwise it's computed here.
+async function searchDBJobs(primarySkills, secondarySkills, suggestedRoles, domain, queryVector = null) {
+  if (!queryVector) {
+    queryVector = await embedProfile(primarySkills, secondarySkills, suggestedRoles, domain);
+  }
+  if (!queryVector) {
+    console.log('[SKILL SEARCH DB] No query vector — skipping DB search');
+    return [];
+  }
 
   const SOURCE_FRESHNESS_DAYS = {
     naukri: 5, jsearch: 10, adzuna: 14, arbeitnow: 14, remotive: 14,
@@ -403,23 +516,37 @@ async function searchDBJobs(primarySkills, secondarySkills, suggestedRoles, doma
     workday: 45, taleo: 45, successfactors: 45,
   };
   const DEFAULT_FRESHNESS_DAYS = 21;
-  const HARD_AGE_CAP_DAYS      = 45;
-  const hardAgeCutoff          = new Date(Date.now() - HARD_AGE_CAP_DAYS * 24 * 60 * 60 * 1000);
 
-  const jobs = await Job.find({
+  // Search ALL embedded active jobs — no time window. Every job in the DB is
+  // embedded (non-embedded jobs are pruned), so relevance (cosine similarity),
+  // not age, decides what surfaces. VECTOR_TOP_K below bounds the result set;
+  // at the current corpus size the per-search memory of loading these vectors
+  // is small.
+  const candidates = await Job.find({
     isActive: true,
-    firstSeenAt: { $gte: hardAgeCutoff },
-    title: titleRegex
+    embedding: { $ne: null }
   })
+    .select('+embedding title location applyLink source description firstSeenAt ' +
+            'lastSeenAt postedDate experienceLevel yearsMin yearsMax experienceText ' +
+            'requiredSkills qualifications responsibilityBullets company')
     .populate('company', 'name logo domain lat lng atsProvider hiringVelocity careersProvider')
-    .limit(1500)
     .lean();
 
-  console.log(`[SKILL SEARCH DB] Query hit ${jobs.length} jobs (max age: ${HARD_AGE_CAP_DAYS}d)`);
+  // Score, threshold, sort by similarity, keep the top K.
+  const jobs = candidates
+    .map(job => ({ job, _score: cosineSimilarity(queryVector, job.embedding) }))
+    .filter(x => x._score >= MIN_VECTOR_SCORE)
+    .sort((a, b) => b._score - a._score)
+    .slice(0, VECTOR_TOP_K)
+    .map(x => ({ ...x.job, _score: x._score }));
+
+  console.log(`[SKILL SEARCH DB] Scored ${candidates.length} candidates → ${jobs.length} matches (score >= ${MIN_VECTOR_SCORE})`);
 
   const results = [];
   for (const job of jobs) {
-    if (!job.company || !isTitleRelevant(job.title, primarySkills, secondarySkills, suggestedRoles, domain)) continue;
+    // Hard exclusion: never surface non-tech / leadership titles regardless of
+    // semantic similarity (the one keyword rule we keep).
+    if (job.title && IRRELEVANT_TITLES.some(w => job.title.toLowerCase().includes(w))) continue;
 
     const freshDays  = SOURCE_FRESHNESS_DAYS[job.source] ?? DEFAULT_FRESHNESS_DAYS;
     const freshCutoff = new Date(Date.now() - freshDays * 24 * 60 * 60 * 1000);
@@ -449,7 +576,8 @@ async function searchDBJobs(primarySkills, secondarySkills, suggestedRoles, doma
       _experienceText:  job.experienceText || null,
       _requiredSkills:  job.requiredSkills || [],
       _qualifications:  job.qualifications || [],
-      _responsibilityBullets: job.responsibilityBullets || []
+      _responsibilityBullets: job.responsibilityBullets || [],
+      _vectorScore:     job._score ?? null
     });
   }
   return results;
@@ -523,7 +651,8 @@ async function persistAndGroupJobs(rawJobs, primarySkills = [], suggestedRoles =
       _experienceText:  job._experienceText || null,
       _requiredSkills:  job._requiredSkills || [],
       _qualifications:  job._qualifications || [],
-      _responsibilityBullets: job._responsibilityBullets || []
+      _responsibilityBullets: job._responsibilityBullets || [],
+      _vectorScore:     typeof job._vectorScore === 'number' ? job._vectorScore : null
     });
   }
 
@@ -536,7 +665,7 @@ async function persistAndGroupJobs(rawJobs, primarySkills = [], suggestedRoles =
   const hasValidCoords = (c) => Number.isFinite(c?.lat) && Number.isFinite(c?.lng);
 
   const bulkExistingUpdates = [];  // collected, applied in one bulkWrite after the loop
-  const results = [];
+  const results = []; 
 
   for (const [normalized, data] of companyMap) {
     let company = companyDocMap.get(normalized);  // O(1) map lookup — no DB call
@@ -562,7 +691,7 @@ async function persistAndGroupJobs(rawJobs, primarySkills = [], suggestedRoles =
       console.log(`[SKILL SEARCH] New company saved: ${normalized}`);
     } else {
       // ── STEP 2: Collect field updates — applied in one bulkWrite after the loop ──
-      const updates = {};
+      const updates = {};        
 
       const currentCoords = { lat: company.lat, lng: company.lng };
       if (!hasValidCoords(currentCoords) || isIndiaCenter(currentCoords)) {
@@ -637,7 +766,7 @@ async function persistAndGroupJobs(rawJobs, primarySkills = [], suggestedRoles =
         responsibilityBullets: j._responsibilityBullets || [],
         source:          j.source || 'unknown',
         postedDate:      j._postedDate || null,
-        relevanceScore:  scoreJob(j.title, j.location, j.source, primarySkills, suggestedRoles, domain)
+        relevanceScore:  relevanceFor(j, primarySkills, suggestedRoles, domain)
       }))
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
@@ -678,6 +807,10 @@ async function persistAndGroupJobs(rawJobs, primarySkills = [], suggestedRoles =
 
 // ─── Main entry ───────────────────────────────────────────────────────────────
 
+
+
+
+
 // Returns { companies, fromCache } so callers can relay the cache flag to clients.
 async function searchJobsBySkills({ primarySkills = [], secondarySkills = [], skills = [], roles = [], domain = 'other' }) {
   const primary      = primarySkills.length ? primarySkills : skills;
@@ -699,8 +832,11 @@ async function searchJobsBySkills({ primarySkills = [], secondarySkills = [], sk
     return { companies: cached, fromCache: true };
   }
 
+  // Embed the resume profile ONCE; reuse for both DB search and the live filter.
+  const queryVector = await embedProfile(primary, secondary, suggestedRoles, domain);
+
   // ── DB-first: skip live APIs if we already have enough results ───────────────
-  const dbJobsEarly = await searchDBJobs(primary, secondary, suggestedRoles, domain);
+  const dbJobsEarly = await searchDBJobs(primary, secondary, suggestedRoles, domain, queryVector);
 
   // Always run live APIs — DB results are merged in below
   const queries = buildQueries(primary, suggestedRoles);
@@ -753,7 +889,22 @@ async function searchJobsBySkills({ primarySkills = [], secondarySkills = [], sk
     ` | SR: ${smartRecruitersJobs.length} | DB: ${dbJobsEarly.length}`
   );
 
-  const allJobs = [...allJSearchJobs, ...greenhouseJobs, ...leverJobs, ...ashbyJobs, ...smartRecruitersJobs, ...dbJobsEarly];
+  // Semantically filter the live-API jobs so the SAME relevance bar that governs
+  // DB jobs also governs live ones — cuts keyword-only junk (e.g. pentest jobs in
+  // a React search) that isTitleRelevant lets through. DB jobs already carry
+  // _vectorScore from searchDBJobs, so they're not re-embedded here.
+  const liveJobsKeyword = [...allJSearchJobs, ...greenhouseJobs, ...leverJobs, ...ashbyJobs, ...smartRecruitersJobs];
+  let liveJobs = liveJobsKeyword;
+  if (queryVector && liveJobsKeyword.length) {
+    try {
+      liveJobs = await semanticFilterLiveJobs(liveJobsKeyword, queryVector);
+      console.log(`[SKILL SEARCH] Live jobs semantic filter: ${liveJobsKeyword.length} → ${liveJobs.length} (>= ${MIN_VECTOR_SCORE})`);
+    } catch (err) {
+      console.warn('[SKILL SEARCH] Live semantic filter skipped:', err?.message);
+    }
+  }
+
+  const allJobs = [...liveJobs, ...dbJobsEarly];
   console.log(`[SKILL SEARCH] Total combined: ${allJobs.length}`);
 
   const companies = await persistAndGroupJobs(allJobs, primary, suggestedRoles, secondary, domain);
@@ -767,4 +918,4 @@ async function searchJobsBySkills({ primarySkills = [], secondarySkills = [], sk
   return { companies, fromCache: false };
 }
 
-module.exports = { searchJobsBySkills };
+module.exports = { searchJobsBySkills, searchDBJobs };

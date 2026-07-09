@@ -7,6 +7,7 @@ const { getIngestionSourceCatalog } = require("./config/ingestionSourceCatalog")
 const { runCompanyGrowthCycle }  = require("./services/companyGrowthOrchestratorService");
 const { backfillCompanyCoords }  = require("./services/companyCoordsService");
 const { markStaleJobs }          = require("./services/staleJobService");
+const { runStorageCleanup }      = require("./services/storageCleanupService");
 const { backfillJobFreshness }   = require("./services/jobFreshnessService");
 const { runIngestionQueue }      = require("./services/ingestionOrchestratorService");
 const { runIngestionMonitor }    = require("./services/ingestionMonitorService");
@@ -16,6 +17,8 @@ const { backfillAtsProviders }  = require("./services/atsProviderBackfillService
 const { discoverAndIngestWorkdayBoards } = require("./services/workdayDiscoveryService");
 const { runYoutubeHiringDiscovery }      = require("./services/youtubeHiringService");
 const { runJobVerification }             = require("./services/jobVerificationService");
+const { runNaukriVerification }          = require("./services/naukriVerifyService");
+const { cleanupDeadAtsBoards }           = require("./services/atsCleanupService");
 
 // ─── Ingestion helpers ─────────────────────────────────────────────────────────
 
@@ -138,22 +141,36 @@ async function bootstrap() {
     }
   });
 
-  // Cron: daily staleness sweep at 1am UTC
+  // Cron: daily staleness sweep + storage cleanup at 1am UTC.
+  // markStaleJobs marks dead jobs inactive; runStorageCleanup then deletes
+  // inactive jobs past the grace period (and caps total job count) so the DB
+  // can't fill up the free 512 MB tier.
   cron.schedule("0 1 * * *", async () => {
     try {
       await markStaleJobs();
+      await runStorageCleanup();
     } catch (error) {
-      console.error("[CRON] Staleness sweep failed:", error.message);
+      console.error("[CRON] Staleness sweep / cleanup failed:", error.message);
     }
   });
 
-  // Cron: nightly job verification at 3am UTC — checks aggregator jobs for dead links
+  // Cron: nightly job verification at 3am UTC.
+  //  - runJobVerification checks aggregator jobs (Adzuna/JSearch/etc.) for dead links.
+  //  - runNaukriVerification checks Naukri jobs via Naukri's job-detail API, which
+  //    reveals the real expired status (the public job page needs login, so a normal
+  //    dead-link check can't be used — this closes that gap).
   cron.schedule("0 3 * * *", async () => {
     try {
       const result = await runJobVerification();
       console.log(`[CRON] Job verification done | checked: ${result.checked} | marked inactive: ${result.markedInactive}`);
     } catch (error) {
       console.error("[CRON] Job verification failed:", error.message);
+    }
+    try {
+      const naukri = await runNaukriVerification();
+      console.log(`[CRON] Naukri verification done | checked: ${naukri.checked} | marked inactive: ${naukri.markedInactive}`);
+    } catch (error) {
+      console.error("[CRON] Naukri verification failed:", error.message);
     }
   });
 
@@ -181,6 +198,19 @@ async function bootstrap() {
       );
     } catch (error) {
       console.error("[CRON] Workday discovery failed:", error.message);
+    }
+  });
+
+  // Cron: weekly ATS board cleanup — Sunday 4am UTC.
+  // Removes dead (0-India) and duplicate Greenhouse/Lever/Ashby/SmartRecruiters
+  // registrations so they don't accumulate and slow down ingestion. Self-healing
+  // janitor: even if a registration path adds a US-only board, this prunes it.
+  cron.schedule("0 4 * * 0", async () => {
+    try {
+      const result = await cleanupDeadAtsBoards();
+      console.log(`[CRON] ATS cleanup done | removed ${result.removed} dead/duplicate boards`);
+    } catch (error) {
+      console.error("[CRON] ATS cleanup failed:", error.message);
     }
   });
 

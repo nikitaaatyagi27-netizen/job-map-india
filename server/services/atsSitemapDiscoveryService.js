@@ -9,11 +9,14 @@ const { isIndianLocation } = require('../utils/indiaLocation');
 const CONCURRENCY = 12;
 const REQUEST_TIMEOUT = 12000;
 
-// Sitemap-discovery samples a few jobs per company to decide if they hire in
-// India. Treat "remote" as India-eligible since we'd rather scan a board that
-// might have India jobs than miss companies due to ambiguous location strings.
+// Discovery decides whether to REGISTER a whole company based on its jobs, so it
+// must require an EXPLICIT Indian location (a city/state/region or the word
+// "india") — NOT ambiguous keywords like "remote"/"global"/"anywhere". Otherwise
+// US companies posting remote roles get registered with inflated fake "India job"
+// counts (e.g. a US AI startup's "Remote - US" roles counted as India), polluting
+// the India map. requireExplicit:true also rejects empty/missing locations.
 const isIndiaLocation = (str) =>
-  isIndianLocation(str, { hasIndianPresence: true });
+  isIndianLocation(str, { hasIndianPresence: false, requireExplicit: true });
 
 function slugToName(slug) {
   return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).trim();
@@ -43,6 +46,14 @@ async function mineSlugsByGitHub(atsHost, queries, existingSlugs = new Set()) {
   const slugSet = new Set();
   const escapedHost = atsHost.replace(/\./g, '\\.');
 
+  // GitHub CODE search has a special low limit of 10 requests/minute (much lower
+  // than the 30/min for other search endpoints). Exceeding it returns HTTP 403
+  // ("rate limit exceeded"), not 429. Pace requests to ~8.5/min (7s apart) to
+  // stay safely under, and honor the rate-limit headers when GitHub signals it's
+  // out — waiting for the reset instead of hammering into a wall of 403s.
+  const GH_SEARCH_INTERVAL_MS = Number(process.env.GH_SEARCH_INTERVAL_MS || 7000);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
   for (const query of queries) {
     try {
       const res = await axios.get('https://api.github.com/search/code', {
@@ -52,8 +63,24 @@ async function mineSlugsByGitHub(atsHost, queries, existingSlugs = new Set()) {
           Accept: 'application/vnd.github.text-match+json',
           'User-Agent': 'job-map-india-discovery'
         },
-        timeout: 15000
+        timeout: 15000,
+        validateStatus: () => true
       });
+
+      // Rate-limit exhausted (403/429 with remaining 0): wait for the reset.
+      const remaining = Number(res.headers['x-ratelimit-remaining']);
+      if (res.status === 403 || res.status === 429) {
+        const reset = Number(res.headers['x-ratelimit-reset']);
+        const waitMs = reset ? Math.max(reset * 1000 - Date.now(), 0) + 1000 : 60000;
+        console.log(`  GitHub code search throttled (HTTP ${res.status}) — waiting ${Math.ceil(waitMs / 1000)}s for reset`);
+        await sleep(waitMs);
+        continue;
+      }
+      if (res.status >= 400) {
+        console.log(`  GitHub search query failed: HTTP ${res.status} ${res.data?.message || ''}`);
+        await sleep(GH_SEARCH_INTERVAL_MS);
+        continue;
+      }
 
       const items = res.data?.items || [];
       for (const item of items) {
@@ -73,10 +100,18 @@ async function mineSlugsByGitHub(atsHost, queries, existingSlugs = new Set()) {
         }
       }
 
-      // GitHub code search rate limit: 30 req/min authenticated
-      await new Promise(r => setTimeout(r, 2100));
+      // If we're about to run out, pre-emptively wait for the window reset.
+      if (Number.isFinite(remaining) && remaining <= 1) {
+        const reset = Number(res.headers['x-ratelimit-reset']);
+        const waitMs = reset ? Math.max(reset * 1000 - Date.now(), 0) + 1000 : 60000;
+        console.log(`  GitHub code search budget low (remaining ${remaining}) — waiting ${Math.ceil(waitMs / 1000)}s`);
+        await sleep(waitMs);
+      } else {
+        await sleep(GH_SEARCH_INTERVAL_MS);
+      }
     } catch (e) {
       console.log(`  GitHub search query failed: ${e.message}`);
+      await sleep(GH_SEARCH_INTERVAL_MS);
     }
   }
 
@@ -152,6 +187,14 @@ const GREENHOUSE_QUERIES = [
   '"boards.greenhouse.io" india "machine learning"',
   '"boards.greenhouse.io" india "data scientist"',
   '"boards.greenhouse.io" india "product manager"',
+  // Category-targeted India queries — fintech / AI / SaaS (the segments with the
+  // most modern-ATS Indian startups; broadens the slug space beyond city queries).
+  '"boards.greenhouse.io" india fintech payments',
+  '"boards.greenhouse.io" india "neobank" OR "lending" OR "wealth"',
+  '"boards.greenhouse.io" india "artificial intelligence" OR "generative ai"',
+  '"boards.greenhouse.io" india "ML engineer" OR "applied scientist"',
+  '"boards.greenhouse.io" india saas "developer tools"',
+  '"boards.greenhouse.io" india "api platform" OR "devtools" OR "b2b saas"',
   // robots.txt — companies reference their job board in Disallow or comment blocks
   'filename:robots.txt "boards.greenhouse.io"',
   'filename:robots.txt "greenhouse.io"',
@@ -238,6 +281,12 @@ const LEVER_QUERIES = [
   '"jobs.lever.co" india "machine learning"',
   '"jobs.lever.co" india "data scientist"',
   '"jobs.lever.co" india "site reliability"',
+  // Category-targeted India queries — fintech / AI / SaaS
+  '"jobs.lever.co" india fintech payments neobank',
+  '"jobs.lever.co" india "lending" OR "wealth" OR "insurance tech"',
+  '"jobs.lever.co" india "artificial intelligence" OR "generative ai"',
+  '"jobs.lever.co" india "applied scientist" OR "ML engineer"',
+  '"jobs.lever.co" india "b2b saas" OR "developer tools" OR "api platform"',
   // robots.txt and sitemap patterns
   'filename:robots.txt "jobs.lever.co"',
   'filename:sitemap.xml "jobs.lever.co"',
@@ -311,6 +360,13 @@ const ASHBY_QUERIES = [
   '"jobs.ashbyhq.com" india "product manager"',
   '"jobs.ashbyhq.com" india "machine learning"',
   '"jobs.ashbyhq.com" india "data scientist"',
+  // Category-targeted India queries — fintech / AI / SaaS (Ashby skews heavily
+  // toward AI-native and devtools startups, so these are especially productive).
+  '"jobs.ashbyhq.com" india fintech payments neobank',
+  '"jobs.ashbyhq.com" india "lending" OR "wealth" OR "insurtech"',
+  '"jobs.ashbyhq.com" india "artificial intelligence" OR "generative ai" OR "LLM"',
+  '"jobs.ashbyhq.com" india "applied scientist" OR "ML engineer" OR "research engineer"',
+  '"jobs.ashbyhq.com" india "b2b saas" OR "developer tools" OR "api platform"',
   // robots.txt and sitemap patterns
   'filename:robots.txt "jobs.ashbyhq.com"',
   'filename:sitemap.xml "jobs.ashbyhq.com"',
@@ -443,4 +499,10 @@ async function discoverSmartRecruiters() {
   return registered;
 }
 
-module.exports = { discoverGreenhouse, discoverLever, discoverAshby, discoverSmartRecruiters };
+module.exports = {
+  discoverGreenhouse, discoverLever, discoverAshby, discoverSmartRecruiters,
+  // Exported for dry-run probing (scripts/probeAtsDiscovery.js) — mine + verify
+  // India jobs without writing anything to the DB.
+  mineSlugsByGitHub, checkGreenhouseForIndia, checkLeverForIndia, checkAshbyForIndia,
+  GREENHOUSE_QUERIES, LEVER_QUERIES, ASHBY_QUERIES, runConcurrent, CONCURRENCY
+};

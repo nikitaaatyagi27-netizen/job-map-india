@@ -67,7 +67,7 @@ const BOARDS = [
   { displayName: "Linear",      slug: "linear",      ats: "ashby",      domain: "linear.app" },
 
   // ── More Indian product companies ─────────────────────────────────────────
-  { displayName: "Razorpay",    slug: "razorpay",    ats: "lever",       domain: "razorpay.com" },
+  { displayName: "Razorpay",    slug: "razorpaysoftwareprivatelimited", ats: "greenhouse", domain: "razorpay.com" }, // moved lever→greenhouse (verified)
   { displayName: "BrowserStack", slug: "browserstack", ats: "greenhouse", domain: "browserstack.com" },
   { displayName: "Wingify",     slug: "wingify",     ats: "greenhouse",  domain: "wingify.com" },  // Delhi HQ
   { displayName: "Chargebee",   slug: "chargebee",   ats: "greenhouse",  domain: "chargebee.com" },
@@ -105,6 +105,22 @@ const BOARDS = [
   { displayName: "Bosch",            slug: "BoschGroup",                 ats: "smartrecruiters", domain: "bosch.com" },
   { displayName: "Continental",      slug: "Continental",                ats: "smartrecruiters", domain: "continental.com" },
   { displayName: "Jabil",            slug: "NyproPackagingAJabilCompany", ats: "smartrecruiters", domain: "jabil.com" },
+
+  // ── Indian startups / product companies — all live-probed (verified working) ──
+  { displayName: "Sarvam AI",    slug: "sarvam",         ats: "ashby",           domain: "sarvam.ai" },
+  { displayName: "Slice",        slug: "slice",          ats: "greenhouse",      domain: "sliceit.com" },
+  { displayName: "DevRev",       slug: "devrev",         ats: "greenhouse",      domain: "devrev.ai" },
+  { displayName: "Dream11",      slug: "dreamsports",    ats: "lever",           domain: "dream11.com" },
+  { displayName: "Nanonets",     slug: "nanonets",       ats: "greenhouse",      domain: "nanonets.com" },
+  { displayName: "Observe.ai",   slug: "observeai",      ats: "greenhouse",      domain: "observe.ai" },
+  { displayName: "Porter",       slug: "porter",         ats: "lever",           domain: "porter.in" },
+  { displayName: "Refyne",       slug: "refyne",         ats: "smartrecruiters", domain: "refyne.co.in" },
+  { displayName: "Navi",         slug: "navi",           ats: "ashby",           domain: "navi.com" },
+  { displayName: "Atlan",        slug: "atlan",          ats: "ashby",           domain: "atlan.com" },
+  { displayName: "Scaler",       slug: "scaler",         ats: "ashby",           domain: "scaler.com" },
+  { displayName: "Cars24",       slug: "cars24",         ats: "smartrecruiters", domain: "cars24.com" },
+  { displayName: "Whatfix",      slug: "whatfix",        ats: "smartrecruiters", domain: "whatfix.com" },
+  { displayName: "Newton School", slug: "newtonschool",  ats: "smartrecruiters", domain: "newtonschool.co" },
 ];
 
 const ATS_URL_PATTERNS = {

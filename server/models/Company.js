@@ -67,7 +67,7 @@ const CompanySchema = new mongoose.Schema({
 //   1. Static Indian-city lookup on company.location
 //   2. Static Indian-city lookup on company.city
 //   3. Deterministic metro spread by company name (always returns coords)
-CompanySchema.pre("save", function ensureCoords() {
+CompanySchema.pre("save", function ensureCoords() {                              /// it is to make sure we always have lat and lng , so we will have valid lat and lng then only we will enter in the db . pre("save") runs before touching the db.
   if (Number.isFinite(this.lat) && Number.isFinite(this.lng)) return;
 
   const fromLocation = extractIndianCityCoords(this.location);

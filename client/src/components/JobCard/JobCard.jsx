@@ -4,7 +4,7 @@ import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import SkillGapBar from '../SkillGapBar/SkillGapBar';
-import { SOURCE_LABELS, daysAgo, jobAgeDays } from '../../utils/jobUtils';
+import { SOURCE_LABELS, SOURCE_CHIP_COLORS, daysAgo, jobAgeDays } from '../../utils/jobUtils';
 
 const JobCard = React.memo(function JobCard({ job, companyName, companyId, saved, applied, reported, skillGap, onSave, onApply, onReportClosed }) {
   const ageDays   = jobAgeDays(job.postedDate);
@@ -37,21 +37,20 @@ const JobCard = React.memo(function JobCard({ job, companyName, companyId, saved
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
-        {job.source && job.source === 'naukri' ? (
-          <Tooltip title="Listed on Naukri — you may need to log in to Naukri to apply">
+        {job.source && (() => {
+          const c = SOURCE_CHIP_COLORS[job.source] || { bg: '#0f172a', color: '#60a5fa', border: '#1e40af' };
+          const label = `via ${SOURCE_LABELS[job.source] || job.source}`;
+          const chip = (
             <Chip
-              label="via Naukri"
+              label={label}
               size="small"
-              sx={{ bgcolor: '#422006', color: '#fbbf24', border: '1px solid #a16207', fontSize: 10, height: 20, cursor: 'help' }}
+              sx={{ bgcolor: c.bg, color: c.color, border: `1px solid ${c.border}`, fontSize: 10, height: 20, fontWeight: 600, ...(job.source === 'naukri' ? { cursor: 'help' } : {}) }}
             />
-          </Tooltip>
-        ) : job.source && (
-          <Chip
-            label={SOURCE_LABELS[job.source] || job.source}
-            size="small"
-            sx={{ bgcolor: '#0f172a', color: '#60a5fa', border: '1px solid #1e40af', fontSize: 10, height: 20 }}
-          />
-        )}
+          );
+          return job.source === 'naukri'
+            ? <Tooltip title="Listed on Naukri — you may need to log in to Naukri to apply">{chip}</Tooltip>
+            : chip;
+        })()}
         {job.postedDate && (
           <Chip
             label={`Posted ${daysAgo(job.postedDate)}`}
