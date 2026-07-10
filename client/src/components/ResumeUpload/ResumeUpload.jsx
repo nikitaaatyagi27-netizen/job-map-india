@@ -103,53 +103,11 @@ const WALL_TILES = [
   { x: 84, y: 91, s: 0.72, r: -9, company: 16 },
 ];
 
-function getSlice(offset, count) {
-  const result = [];
-  for (let i = 0; i < count; i++) result.push(COMPANIES[(offset + i) % COMPANIES.length]);
-  return result;
-}
+
 
 // ── Logo chip ─────────────────────────────────────────────────────────────────
 
-const LogoChip = React.memo(function LogoChip({ company, compact = false }) {
-  return (
-    <Box sx={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      gap: compact ? 0 : 1,
-      mx: compact ? 0 : 1.5,
-      px: compact ? 1.3 : 2,
-      py: compact ? 0.95 : 0.9,
-      minWidth: compact ? 48 : 'auto',
-      borderRadius: compact ? '999px' : '10px', flexShrink: 0,
-      background: compact ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)',
-      border: compact ? '1px solid rgba(127,84,22,0.12)' : '1px solid rgba(255,255,255,0.09)',
-      boxShadow: compact ? '0 6px 18px rgba(127,84,22,0.1)' : 'none',
-    }}>
-      <img
-        src={`https://logo.clearbit.com/${company.domain}`}
-        alt={company.name}
-        onError={(e) => {
-          e.currentTarget.style.display = 'none';
-          const fb = e.currentTarget.nextSibling;
-          if (fb) fb.style.display = 'flex';
-        }}
-        style={{ width: compact ? 22 : 20, height: compact ? 22 : 20, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }}
-      />
-      <span style={{
-        display: 'none', width: compact ? 22 : 20, height: compact ? 22 : 20, borderRadius: 3,
-        backgroundColor: company.color, alignItems: 'center', justifyContent: 'center',
-        fontSize: 8, fontWeight: 800, color: 'white', flexShrink: 0,
-      }}>
-        {company.initials}
-      </span>
-      {!compact && (
-        <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-          {company.name}
-        </Typography>
-      )}
-    </Box>
-  );
-});
+
 
 
 
