@@ -151,58 +151,7 @@ const LogoChip = React.memo(function LogoChip({ company, compact = false }) {
   );
 });
 
-const MarqueeRow = React.memo(function MarqueeRow({ offset, count, duration }) {
-  const doubled = [...getSlice(offset, count), ...getSlice(offset, count)];
-  const animKey = `scroll-right-${duration}`;
-  return (
-    <Box sx={{ overflow: 'hidden', width: '100%', py: 0.5 }}>
-      <Box sx={{
-        display: 'flex', width: 'max-content',
-        [`@keyframes ${animKey}`]: {
-          '0%':   { transform: 'translateX(-50%)' },
-          '100%': { transform: 'translateX(0%)' },
-        },
-        animation: `${animKey} ${duration}s linear infinite`,
-      }}>
-        {doubled.map((company, i) => (
-          <LogoChip key={`${company.domain}-${i}`} company={company} />
-        ))}
-      </Box>
-    </Box>
-  );
-});
 
-function OrbitRing({ companies, radius, duration, reverse = false, opacity = 1, compact = false }) {
-  const count = companies.length;
-  const step = 360 / count;
-
-  return (
-    <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity }}>
-      <motion.div
-        animate={{ rotate: reverse ? -360 : 360 }}
-        transition={{ duration, repeat: Infinity, ease: 'linear' }}
-        style={{ position: 'absolute', inset: 0 }}
-      >
-        {companies.map((company, index) => {
-          const angle = step * index;
-          return (
-            <Box
-              key={`${company.domain}-${index}`}
-              sx={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: `rotate(${angle}deg) translateY(-${radius}px) rotate(${-angle}deg) translate(-50%, -50%)`,
-              }}
-            >
-              <LogoChip company={company} compact={compact} />
-            </Box>
-          );
-        })}
-      </motion.div>
-    </Box>
-  );
-}
 
 function LogoWall() {
   return (
@@ -270,57 +219,6 @@ function LogoWall() {
 
 // ── Animated upload icon (replaces 📄 emoji) ──────────────────────────────────
 
-function UploadIcon({ dragging }) {
-  return (
-    <Box sx={{ position: 'relative', width: 88, height: 88, mx: 'auto', mb: 3 }}>
-      {/* Slow outer rotating dashed ring */}
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
-        style={{
-          position: 'absolute', inset: 0, borderRadius: '50%',
-          border: `2px dashed ${dragging ? 'rgba(96,165,250,0.9)' : 'rgba(96,165,250,0.4)'}`,
-        }}
-      />
-      {/* Fast inner counter-rotating ring */}
-      <motion.div
-        animate={{ rotate: -360 }}
-        transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
-        style={{
-          position: 'absolute', inset: 10, borderRadius: '50%',
-          border: '1.5px dashed rgba(167,139,250,0.35)',
-        }}
-      />
-      {/* Pulsing glow fill */}
-      <motion.div
-        animate={{ scale: [1, 1.15, 1], opacity: [0.2, 0.45, 0.2] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-        style={{
-          position: 'absolute', inset: 14, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(96,165,250,0.35) 0%, transparent 80%)',
-        }}
-      />
-      {/* Bouncing arrow */}
-      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <motion.div
-          animate={{ y: [0, -6, 0] }}
-          transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-            <motion.path
-              d="M12 15V4"
-              stroke="#60a5fa" strokeWidth="2.2" strokeLinecap="round"
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 1.6, repeat: Infinity }}
-            />
-            <path d="M8 8L12 4L16 8" stroke="#60a5fa" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M4 17v1a3 3 0 003 3h10a3 3 0 003-3v-1" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </motion.div>
-      </Box>
-    </Box>
-  );
-}
 
 // ── Experience levels ─────────────────────────────────────────────────────────
 
@@ -345,7 +243,6 @@ const LEVELS = [
 // ── Main component ────────────────────────────────────────────────────────────
 
 const ResumeUpload = ({ onSkillsExtracted }) => {
-  const [dragging, setDragging]     = useState(false);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
   const [step, setStep]             = useState('upload');
@@ -379,7 +276,6 @@ const ResumeUpload = ({ onSkillsExtracted }) => {
 
   const handleSelectLevel = (level) => onSkillsExtracted({ ...parsedData, experienceLevel: level });
 
-  const onDrop = (e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); };
 
   return (
     <Box sx={{
