@@ -240,7 +240,8 @@ const App = () => {
   };
 
   const handleApply = async (job, companyName) => {
-    setAppliedLinks(prev => new Set([...prev, job.applyLink]));
+     if (job.applyLink) {
+    setAppliedLinks(prev => new Set([...prev, job.applyLink]));}
     await trackApplyClick(sessionId.current, {
       title: job.title, company: companyName,
       applyLink: job.applyLink, jobId: job.jobId || null

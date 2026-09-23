@@ -33,7 +33,11 @@ function getBrowserExecutablePath() {
     "C:/Program Files/Google/Chrome/Application/chrome.exe",
     "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
     "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
-    "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+    "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    // Linux paths
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium-browser"
   ].filter(Boolean);
 
   return candidates.find((c) => fs.existsSync(c)) || null;

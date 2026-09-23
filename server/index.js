@@ -1,3 +1,5 @@
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 require("dotenv").config();
 
 const cron = require("node-cron");
@@ -10,8 +12,6 @@ const { markStaleJobs }          = require("./services/staleJobService");
 const { runStorageCleanup }      = require("./services/storageCleanupService");
 const { backfillJobFreshness }   = require("./services/jobFreshnessService");
 const { runIngestionQueue }      = require("./services/ingestionOrchestratorService");
-const { runIngestionMonitor }    = require("./services/ingestionMonitorService");
-const { runDedup }               = require("./services/dedupeService");
 const { computeHiringVelocity } = require("./services/hiringVelocityService");
 const { backfillAtsProviders }  = require("./services/atsProviderBackfillService");
 const { discoverAndIngestWorkdayBoards } = require("./services/workdayDiscoveryService");
@@ -19,6 +19,7 @@ const { runYoutubeHiringDiscovery }      = require("./services/youtubeHiringServ
 const { runJobVerification }             = require("./services/jobVerificationService");
 const { runNaukriVerification }          = require("./services/naukriVerifyService");
 const { cleanupDeadAtsBoards }           = require("./services/atsCleanupService");
+const { runDedup }                       = require("./services/dedupeService");
 
 // ─── Ingestion helpers ─────────────────────────────────────────────────────────
 
@@ -66,8 +67,17 @@ async function runScheduledIngestion() {
   );
 
   await computeHiringVelocity().catch(e => console.error("[HIRING VELOCITY] Failed:", e.message));
-  await backfillAtsProviders().catch(e => console.error("[ATS BACKFILL] Failed:", e.message));
-  await runIngestionMonitor(queueSummary).catch(e => console.error("[MONITOR] Failed:", e.message));
+
+  try {
+    const { runIngestionMonitor } = require("./services/ingestionMonitorService");
+    await runIngestionMonitor(queueSummary);
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') {
+      console.log("[MONITOR] Ingestion monitor service not found, skipping alert check.");
+    } else {
+      console.error("[MONITOR] Failed:", err.message);
+    }
+  }
 }
 
 async function runManualIngestion() {

@@ -99,7 +99,7 @@ const TECH_TITLE_KEYWORDS = [
 
 const RESULTS_PER_PAGE = 50;
 const MAX_PAGES_PER_QUERY = Math.max(
-  Number(process.env.ADZUNA_MAX_PAGES_PER_QUERY || 5),
+  Number(process.env.ADZUNA_MAX_PAGES_PER_QUERY || 10),
   1
 );
 const REQUEST_TIMEOUT_MS = 15000;

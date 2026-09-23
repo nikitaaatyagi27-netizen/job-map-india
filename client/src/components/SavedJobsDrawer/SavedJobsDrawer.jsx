@@ -36,7 +36,7 @@ export default function SavedJobsDrawer({ open, onClose, savedJobs, appliedLinks
           </Box>
         ) : (
           savedJobs.map((job, i) => {
-            const applied = appliedLinks.has(job.applyLink);
+            const applied = !!job.applyLink && appliedLinks.has(job.applyLink);
             return (
               <Box key={i} sx={{
                 mb: 1.5, p: 1.5, bgcolor: '#1e293b', borderRadius: 2,

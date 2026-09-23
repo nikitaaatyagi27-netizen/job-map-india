@@ -5,7 +5,6 @@ const {
   registerSourceFailure,
   isSourceBackedOff
 } = require("./sourceHealthService");
-const { logIngestionRun } = require("./ingestionRunLogService");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,7 +164,16 @@ async function runIngestionQueue(tasks = [], options = {}) {
   await Promise.all(workers);
 
   summary.finishedAt = new Date();
-  await logIngestionRun(summary).catch(() => null);
+  try {
+    const { logIngestionRun } = require("./ingestionRunLogService");
+    await logIngestionRun(summary);
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') {
+      console.log("[ORCHESTRATOR] Ingestion run log service not found, skipping log persistence.");
+    } else {
+      console.warn("[ORCHESTRATOR] Failed to persist ingestion run log:", err.message);
+    }
+  }
 
   return summary;
 }

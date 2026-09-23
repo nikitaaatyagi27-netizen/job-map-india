@@ -17,11 +17,23 @@ const { getCachedResults, setCachedResults } = require('./searchCacheService');
 const { embed } = require('../utils/embeddingClient');
 const { buildProfileEmbedText } = require('../utils/jobEmbedText');
 
-const JSEARCH_URL = 'https://jsearch.p.rapidapi.com/search';
+// JSearch retired the plain "/search" endpoint — it now returns 404
+// ("Endpoint '/search' does not exist"). The provider (OpenWeb Ninja, same
+// backend behind the RapidAPI listing) moved everyone to "/search-v2" with
+// cursor-based pagination. We only ever fetch page 1 here (see fetchPage
+// below — it's always called with page=1 and never loops further), so no
+// cursor handling is needed: just point at the new path and drop the old
+// numeric "page" param, which /search-v2 doesn't use.
+const JSEARCH_URL = 'https://jsearch.p.rapidapi.com/search-v2';
 
 // Max JSearch queries per skill-search (1 query = 1 API call). Kept low for the
 // free RapidAPI tier; raise via JSEARCH_QUERY_LIMIT if you upgrade the plan.
-const JSEARCH_QUERY_LIMIT = Number(process.env.JSEARCH_QUERY_LIMIT || 3);
+// Bumped default to 10 to allow broader coverage; override with env var if needed.
+const JSEARCH_QUERY_LIMIT = Number(process.env.JSEARCH_QUERY_LIMIT || 10);
+
+// When true, do not apply the strict title relevance filter and include all
+// fetched jobs for grouping. Useful for aggressive harvesting/testing.
+const INCLUDE_ALL_JOBS = process.env.INCLUDE_ALL_JOBS === 'true';
 
 const isIndia = (str) => isIndianLocation(str, { hasIndianPresence: true });
 
@@ -268,7 +280,11 @@ async function searchAllJSearch(queries) {
           // jobs that are already closed. Restricting to the last 7 days greatly
           // reduces stale/closed listings reaching the user. Override with
           // JSEARCH_DATE_POSTED if needed.
-          params: { query, num_pages: 1, page, date_posted: process.env.JSEARCH_DATE_POSTED || 'week' },
+          // /search-v2 dropped "page"/"num_pages" in favor of a "cursor" param
+          // for subsequent pages. We only ever request the first page here
+          // (fetchPage is only ever called with page=1), so no cursor is sent —
+          // this always returns page 1's results.
+          params: { query, date_posted: process.env.JSEARCH_DATE_POSTED || 'week' },
           timeout: 20000
         });
         return res.data?.data || [];
@@ -748,10 +764,20 @@ async function persistAndGroupJobs(rawJobs, primarySkills = [], suggestedRoles =
       } catch {}
     }
 
-    if (!Number.isFinite(company.lat) || !Number.isFinite(company.lng)) continue;
+    if (!Number.isFinite(company.lat) || !Number.isFinite(company.lng)) {
+      // Use deterministic metro spread as a fallback so companies without
+      // geocodes still surface in search results. Persist via bulkExistingUpdates
+      // so DB is updated once after processing all companies.
+      const fallbackCoords = spreadCoordsForCompany(company.name);
+      company.lat = fallbackCoords.lat;
+      company.lng = fallbackCoords.lng;
+      bulkExistingUpdates.push({
+        updateOne: { filter: { _id: company._id }, update: { $set: { lat: company.lat, lng: company.lng } } }
+      });
+    }
 
     const scoredRoles = data.jobs
-      .filter(j => isTitleRelevant(j.title, primarySkills, secondarySkills, suggestedRoles, domain))
+      .filter(j => INCLUDE_ALL_JOBS || isTitleRelevant(j.title, primarySkills, secondarySkills, suggestedRoles, domain))
       .map(j => ({
         title:           j.title,
         location:        j.location,

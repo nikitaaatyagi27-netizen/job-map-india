@@ -43,11 +43,12 @@ async function runStorageCleanup(options = {}) {
   if (total > MAX_JOBS) {
     const overBy = total - MAX_JOBS;
     // Find the oldest `overBy` jobs by lastSeenAt and delete them.
+    console.log("DEBUG — about to run sort query with allowDiskUse");
     const oldest = await Job.find({})
       .sort({ lastSeenAt: 1, firstSeenAt: 1 })
       .limit(overBy)
       .select("_id")
-      .lean();
+      .lean().allowDiskUse(true);
     const ids = oldest.map(j => j._id);
     if (ids.length) {
       const capResult = await Job.deleteMany({ _id: { $in: ids } });

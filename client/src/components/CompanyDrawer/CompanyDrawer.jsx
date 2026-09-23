@@ -94,7 +94,7 @@ export default function CompanyDrawer({ company, skillGaps, savedJobs, appliedLi
                 companyName={company.employer_name}
                 companyId={company.companyId}
                 saved={isSaved(job.applyLink)}
-                applied={appliedLinks.has(job.applyLink)}
+                applied={!!job.applyLink && appliedLinks.has(job.applyLink)}
                 reported={reportedJobs.has(job.applyLink)}
                 skillGap={skillGaps[job.applyLink]}
                 onSave={onToggleSave}

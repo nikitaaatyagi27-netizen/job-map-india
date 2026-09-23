@@ -62,16 +62,19 @@ ${resumeText.slice(0, 6000)}`;
 
   let raw;
   try {
-    raw = await callLLM([{ role: 'user', content: prompt }], { temperature: 0, max_tokens: 800 });
+    raw = await callLLM([{ role: 'user', content: prompt }], { temperature: 0, max_tokens: 1500 });
   } catch (err) {
     const status = err?.response?.status;
     if (status === 429) {
       throw new Error('Resume parsing rate-limited — please wait 30 seconds and try again');
     }
+    if (status === 402) {
+      throw new Error('LLM provider payment required (402) — check API key billing/credits for your configured LLM providers');
+    }
     if (status === 504 || status === 502 || !status) {
       console.warn('[RESUME PARSER] LLM timeout, retrying in 3s...');
       await new Promise(r => setTimeout(r, 3000));
-      raw = await callLLM([{ role: 'user', content: prompt }], { temperature: 0, max_tokens: 800 });
+      raw = await callLLM([{ role: 'user', content: prompt }], { temperature: 0, max_tokens: 1500 });
     } else {
       throw err;
     }

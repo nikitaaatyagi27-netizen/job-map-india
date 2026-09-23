@@ -3,8 +3,10 @@ const Job = require("../models/Job");
 
 // Sources we can reliably verify via HTTP.
 // Skipped: naukri (login required), greenhouse/lever/ashby/workday/smartrecruiters (ATS — cleaned by ingestion)
-const VERIFIABLE_SOURCES = ["adzuna", "jsearch", "arbeitnow", "remotive"];
-
+const VERIFIABLE_SOURCES = [
+  "adzuna", "jsearch", "arbeitnow", "remotive",
+  "greenhouse", "lever", "ashby", "smartrecruiters"
+];
 // How old a job must be (days) before we bother verifying it.
 // Fresh jobs were just confirmed live by ingestion — no need to re-check.
 const MIN_AGE_DAYS = 3;

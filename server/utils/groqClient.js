@@ -4,7 +4,7 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || "gemini-2.0-flash";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/auto";
 
@@ -19,7 +19,7 @@ function isRateLimitError(error) {
 async function callGroq(messages, temperature, max_tokens) {
   const res = await axios.post(
     GROQ_URL,
-    { model: GROQ_MODEL, messages, temperature, max_tokens },
+    { model: GROQ_MODEL, messages, temperature, max_tokens,reasoning_effort: "low" },
     { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" }, timeout: 30000 }
   );
   return res.data?.choices?.[0]?.message?.content?.trim() || "";

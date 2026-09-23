@@ -280,6 +280,17 @@ async function discoverCompanyWebsiteCareers(limit = 10) {
       })[0] || null;
 
     if (!discoveredSignal) {
+      // No career signal found this attempt. Still stamp the company as
+      // "attempted" so loadCompanyBatch's oldest-updatedAt-first sort moves
+      // on to the next untried company next iteration, instead of
+      // re-selecting this same company indefinitely. Critical when running
+      // this in a loop over a 20k+ backlog — without this, the loop never
+      // actually drains, it just re-scans the same stuck batch forever.
+      company.lastIntelligenceAt = new Date();
+      company.updatedAt = new Date();
+      await company.save().catch((err) => {
+        console.warn(`[WEBSITE DISCOVERY] Failed to stamp attempt for ${company.name}:`, err.message);
+      });
       continue;
     }
 
@@ -293,6 +304,27 @@ async function discoverCompanyWebsiteCareers(limit = 10) {
     if (!company.website && company.domain) {
       company.website = `https://${company.domain}`;
       changed = true;
+    }
+
+    // BUG FIX: the website field was being populated on discovery, but
+    // `domain` — the field the rest of the codebase (buildWebsiteFromDomain,
+    // diagnostics, search ranking) actually reads — was never written here.
+    // Extract it from whichever URL we now have (website, or the discovered
+    // careersUrl as a fallback) so `domain` stops silently lagging `website`.
+    if (!company.domain) {
+      const urlToExtractFrom = company.website || discoveredSignal.careersUrl || null;
+      if (urlToExtractFrom) {
+        try {
+          const hostname = new URL(urlToExtractFrom).hostname.replace(/^www\./i, "");
+          if (hostname) {
+            company.domain = hostname;
+            changed = true;
+            console.log(`[WEBSITE DISCOVERY] ✔ Domain found for "${company.name}": ${hostname}`);
+          }
+        } catch {
+          // malformed URL — leave domain unset rather than guessing
+        }
+      }
     }
 
     if (discoveredSignal.careersUrl && !company.careersUrl) {
@@ -320,6 +352,14 @@ async function discoverCompanyWebsiteCareers(limit = 10) {
       company.updatedAt = new Date();
       await company.save();
       updatedCompanies++;
+
+      console.log(
+        `[WEBSITE DISCOVERY] Updated "${company.name}" — ` +
+        `domain=${company.domain || "(none)"} ` +
+        `website=${company.website || "(none)"} ` +
+        `careersProvider=${company.careersProvider || "(none)"} ` +
+        `careersUrl=${company.careersUrl || "(none)"}`
+      );
 
       if (company.careersProvider && company.careersUrl) {
         await upsertCareerSource({

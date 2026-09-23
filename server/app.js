@@ -22,8 +22,8 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, Render health checks)
     if (!origin) return callback(null, true);
-    // Allow any vercel.app subdomain (covers preview deployments)
-    if (origin.endsWith(".vercel.app") || ALLOWED_ORIGINS.includes(origin)) {
+    // Allow any Netlify or Vercel subdomain (covers preview deployments)
+    if (origin.endsWith(".netlify.app") || origin.endsWith(".vercel.app") || ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     callback(new Error("Not allowed by CORS"));

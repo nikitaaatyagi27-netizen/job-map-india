@@ -23,7 +23,7 @@ const CITY_BUCKETS = [
   { region: "north",   cities: ["Delhi", "Noida", "Gurugram", "Faridabad", "Ghaziabad", "Chandigarh", "Jaipur", "Lucknow", "Dehradun", "Agra", "Meerut", "Amritsar", "Ludhiana"] },
   { region: "west",    cities: ["Mumbai", "Pune", "Ahmedabad", "Surat", "Nashik", "Nagpur", "Vadodara", "Goa"] },
   { region: "south",   cities: ["Bengaluru", "Hyderabad", "Chennai", "Coimbatore", "Kochi", "Mysuru", "Visakhapatnam", "Vijayawada", "Thiruvananthapuram", "Madurai", "Mangaluru"] },
-  { region: "east",    cities: ["Kolkata", "Bhubaneswar", "Ranchi", "Patna", "Guwahati", "Jamshedpur", "Siliguri"] },
+  { region: "east",    cities: ["Bhubaneswar", "Ranchi", "Patna", "Guwahati", "Jamshedpur", "Siliguri"] },
   { region: "central", cities: ["Indore", "Bhopal", "Raipur", "Jabalpur", "Varanasi"] }
 ];
 

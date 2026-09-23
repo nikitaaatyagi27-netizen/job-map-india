@@ -10,16 +10,8 @@ const connectDB = require("../config/db");
 const fetchNaukriJobs = require("../services/naukriService");
 
 const NEW_CITIES = [
-  // North
-  "Dehradun", "Agra", "Meerut", "Amritsar", "Ludhiana",
-  // West
-  "Vadodara", "Goa",
-  // South
-  "Vijayawada", "Thiruvananthapuram", "Madurai", "Mangaluru",
-  // East
-  "Jamshedpur", "Siliguri",
-  // Central
-  "Jabalpur", "Varanasi"
+  "Noida","Gurugram","Nagpur","Mumbai","Bengaluru"
+  
 ];
 
 async function run() {

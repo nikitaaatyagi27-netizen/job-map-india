@@ -290,6 +290,29 @@ const AMBIGUOUS_KEYWORDS = [
 ];
 
 // ---------------------------------------------------------------------------
+// 5b. Non-India signals — a string like "San Francisco, CA, US; Remote, US"
+//    contains the ambiguous word "remote", but it ALSO explicitly names a
+//    non-India country. Without this check, step 5 below would wrongly count
+//    any "Remote, <country>" posting as an India match just because it
+//    contains "remote" — this is what caused Pinterest's 93 US-based
+//    Greenhouse roles to be counted as "93 India job(s) found". This list is
+//    intentionally non-exhaustive (common ATS location strings), not a full
+//    gazetteer — it only needs to catch the common "Remote, <country>" /
+//    "<city>, <country>" patterns that ATS boards actually produce.
+// ---------------------------------------------------------------------------
+const NON_INDIA_SIGNALS = [
+  "united states", "usa", "u.s.", ", us", " us,", " us)", "(us)",
+  "united kingdom", ", uk", " uk,", "canada", "australia", "germany",
+  "france", "singapore", "philippines", "poland", "ireland", "mexico",
+  "brazil", "vietnam", "bangladesh", "argentina", "south africa", "norway",
+  "romania", "uae", "united arab emirates", "netherlands", "spain", "italy",
+  "japan", "china", "indonesia", "thailand", "malaysia", "new zealand",
+  "sweden", "switzerland", "austria", "belgium", "portugal", "denmark",
+  "finland", "israel", "egypt", "nigeria", "kenya", "pakistan",
+  "sri lanka", "bangladesh", "colombia", "chile", "peru"
+];
+
+// ---------------------------------------------------------------------------
 // 6. Spread metros + India bbox
 // ---------------------------------------------------------------------------
 const SPREAD_METROS = [
@@ -472,10 +495,17 @@ function isIndianLocation(locationString, options = {}) {
     if (lower.includes(aliasKey)) return true;
   }
 
-  // 5. Ambiguous + company has India presence
+  // 5. Ambiguous + company has India presence — but only when the string
+  //    doesn't ALSO explicitly name a non-India country. "Remote, US" and
+  //    "San Francisco, CA, US; Remote, US" contain the ambiguous word
+  //    "remote", but they are explicitly NOT India — without this guard,
+  //    every such posting was wrongly counted as an India match.
   if (options.hasIndianPresence) {
-    for (const ambig of AMBIGUOUS_KEYWORDS) {
-      if (lower.includes(ambig)) return true;
+    const hasNonIndiaSignal = NON_INDIA_SIGNALS.some((sig) => lower.includes(sig));
+    if (!hasNonIndiaSignal) {
+      for (const ambig of AMBIGUOUS_KEYWORDS) {
+        if (lower.includes(ambig)) return true;
+      }
     }
   }
 

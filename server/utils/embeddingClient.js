@@ -29,6 +29,7 @@ async function getExtractor() {
   return _extractorPromise;
 }
 
+
 /**
  * Embed one or more texts with the local bge-base model.
  *
@@ -40,9 +41,9 @@ async function getExtractor() {
  * @param {'query'|'document'} options.inputType
  *   'document' for jobs (no prefix); 'query' for a resume/skill profile
  *   (BGE query-instruction prefix added).
- * @returns {Promise<number[]|number[][]>} a single vector for a string input,
- *   or an array of vectors (input order preserved) for an array input.
+ * @returns {Promise<number[]|number[][]>} a single vector for a string input, or an array of vectors (input order preserved) for an array input.
  */
+
 async function embed(input, { inputType = "document" } = {}) {
   const extractor = await getExtractor();
 
@@ -68,3 +69,11 @@ async function embed(input, { inputType = "document" } = {}) {
 }
 
 module.exports = { embed, EMBEDDING_DIMENSIONS, MODEL_ID };
+
+
+
+// Hosted embeddings via Hugging Face Inference API (bge-base-en-v1.5).
+// No local model in memory — fixes the Render 512MB OOM crash.
+// Same weights as Xenova/bge-base-en-v1.5, so vector space is unchanged.
+
+// bge-base-en-v1.5 outputs 768-dim vectors.
