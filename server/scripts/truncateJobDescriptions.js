@@ -80,7 +80,7 @@ async function run() {
 
   // Bulk truncate via aggregation pipeline update (MongoDB 4.2+) — avoids
   // pulling every description into Node just to slice and write it back.
-  const result = await Job.updateMany(filter, [
+  const result = await Job.collection.updateMany(filter, [
     {
       $set: {
         description: { $substrCP: ["$description", 0, KEEP_CHARS] },

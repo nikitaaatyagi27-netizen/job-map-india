@@ -10,10 +10,10 @@ const Job = require("../models/Job");
 //
 // Tunable via env:
 //   STORAGE_INACTIVE_GRACE_DAYS  (default 3)  — how long an inactive job lingers
-//   STORAGE_MAX_JOBS             (default 40000) — hard cap on total jobs
+//   STORAGE_MAX_JOBS             (default 15000) — hard cap on total jobs (protects 512MB free tier)
 
 const INACTIVE_GRACE_DAYS = Number(process.env.STORAGE_INACTIVE_GRACE_DAYS || 3);
-const MAX_JOBS = Number(process.env.STORAGE_MAX_JOBS || 40000);
+const MAX_JOBS = Number(process.env.STORAGE_MAX_JOBS || 15000);
 
 // options.graceDays overrides the grace period (pass 0 to delete ALL inactive
 // jobs immediately, regardless of when they were marked inactive).
