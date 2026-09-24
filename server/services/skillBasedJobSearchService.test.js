@@ -13,17 +13,27 @@ const Company = require('../models/Company');
 const { searchJobsBySkills } = require('./skillBasedJobSearchService');
 const { upsertIngestedJob } = require('../utils/jobPersistence');
 
+// Mongoose query mock supporting both `await find().select().populate().lean()`
+// and streaming via `find().select().lean().cursor()`.
+function mockJobQuery(docs) {
+  const leanResult = {
+    then: (resolve, reject) => Promise.resolve(docs).then(resolve, reject),
+    cursor: () => (async function* () { yield* docs; })(),
+  };
+  return {
+    select: jest.fn().mockReturnThis(),
+    populate: jest.fn().mockReturnThis(),
+    lean: jest.fn(() => leanResult),
+  };
+}
+
 describe('skillBasedJobSearchService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getCachedResults.mockResolvedValue(null);
     embed.mockResolvedValue(Array(768).fill(0.1)); // Mock embedding vector
     axios.get.mockResolvedValue({ data: { data: [] } }); // Mock JSearch/ATS calls
-    Job.find.mockReturnValue({
-      select: jest.fn().mockReturnThis(),
-      populate: jest.fn().mockReturnThis(),
-      lean: jest.fn().mockResolvedValue([]),
-    });
+    Job.find.mockImplementation(() => mockJobQuery([]));
     Job.findByIdAndUpdate.mockResolvedValue({});
     Company.find.mockResolvedValue([]);
     Company.create.mockImplementation(c => Promise.resolve({ ...c, _id: 'mock-id' }));
@@ -54,11 +64,7 @@ describe('skillBasedJobSearchService', () => {
         company: { _id: `company_${i}`, name: `DB Corp ${i}` }
       }));
 
-      Job.find.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        populate: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue(mockDbJobs),
-      });
+      Job.find.mockImplementation(() => mockJobQuery(mockDbJobs));
 
       const result = await searchJobsBySkills({ primarySkills: ['react'] });
 
@@ -83,11 +89,7 @@ describe('skillBasedJobSearchService', () => {
         embedding: Array(768).fill(0.1),
         company: { _id: `company_${i}`, name: `DB Corp ${i}` }
       }));
-      Job.find.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        populate: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue(mockDbJobs),
-      });
+      Job.find.mockImplementation(() => mockJobQuery(mockDbJobs));
 
       // Mock live APIs to return some data
       axios.get.mockImplementation(url => {

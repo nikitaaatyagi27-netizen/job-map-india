@@ -9,6 +9,8 @@ const MODEL_ID = process.env.LOCAL_EMBED_MODEL || "Xenova/bge-base-en-v1.5";
 // BGE models retrieve best when the QUERY is prefixed with this instruction and
 // the DOCUMENT is left bare. This is the local equivalent of an asymmetric
 // query/document embedding and measurably improves match quality.
+const EMBED_CHUNK_SIZE = Math.max(Number(process.env.EMBED_CHUNK_SIZE || 16), 1);
+
 const QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";
 
 // Lazily-loaded singleton pipeline — the model is loaded into memory once and
@@ -55,14 +57,18 @@ async function embed(input, { inputType = "document" } = {}) {
 
   // Mean-pool + normalize → one unit-length vector per text. With normalization,
   // cosine similarity reduces to a dot product, and scores land in a clean range.
-  const output = await extractor(texts, { pooling: "mean", normalize: true });
-
-  // output is a Tensor of shape [n, 768]; slice it into per-text arrays.
-  const [n, dim] = output.dims;
-  const data = output.data;
+  // Run in small chunks: ONNX activation memory grows with batch size × sequence
+  // length, and one call with hundreds of long texts can exceed a 512 MB host.
   const vectors = [];
-  for (let i = 0; i < n; i++) {
-    vectors.push(Array.from(data.slice(i * dim, (i + 1) * dim)));
+  for (let start = 0; start < texts.length; start += EMBED_CHUNK_SIZE) {
+    const output = await extractor(texts.slice(start, start + EMBED_CHUNK_SIZE), { pooling: "mean", normalize: true });
+
+    // output is a Tensor of shape [n, 768]; slice it into per-text arrays.
+    const [n, dim] = output.dims;
+    const data = output.data;
+    for (let i = 0; i < n; i++) {
+      vectors.push(Array.from(data.slice(i * dim, (i + 1) * dim)));
+    }
   }
 
   return isBatch ? vectors : vectors[0];

@@ -535,28 +535,41 @@ async function searchDBJobs(primarySkills, secondarySkills, suggestedRoles, doma
 
   // Search ALL embedded active jobs — no time window. Every job in the DB is
   // embedded (non-embedded jobs are pruned), so relevance (cosine similarity),
-  // not age, decides what surfaces. VECTOR_TOP_K below bounds the result set;
-  // at the current corpus size the per-search memory of loading these vectors
-  // is small.
-  const candidates = await Job.find({
-    isActive: true,
-    embedding: { $ne: null }
-  })
-    .select('+embedding title location applyLink source description firstSeenAt ' +
+  // not age, decides what surfaces. VECTOR_TOP_K below bounds the result set.
+  //
+  // Two passes to keep memory flat regardless of corpus size (needed on 512 MB
+  // hosts): stream ONLY the vectors through a cursor and keep {id, score} for
+  // matches, then load full documents for just the top K. Loading every job's
+  // vector + description + company in one array is what ran the server out of
+  // memory once the corpus reached tens of thousands of jobs.
+  const matches = [];
+  let scanned = 0;
+  const cursor = Job.find({ isActive: true, embedding: { $ne: null } })
+    .select('embedding') // _id comes by default; '_id +embedding' would drop the vector
+    .lean()
+    .cursor({ batchSize: 500 });
+  for await (const doc of cursor) {
+    scanned++;
+    const score = cosineSimilarity(queryVector, doc.embedding);
+    if (score >= MIN_VECTOR_SCORE) matches.push({ id: doc._id, score });
+  }
+  matches.sort((a, b) => b.score - a.score);
+  const top = matches.slice(0, VECTOR_TOP_K);
+  const scoreById = new Map(top.map(m => [String(m.id), m.score]));
+
+  const topDocs = top.length === 0 ? [] : await Job.find({ _id: { $in: top.map(m => m.id) } })
+    .select('title location applyLink source description firstSeenAt ' +
             'lastSeenAt postedDate experienceLevel yearsMin yearsMax experienceText ' +
             'requiredSkills qualifications responsibilityBullets company')
     .populate('company', 'name logo domain lat lng atsProvider hiringVelocity careersProvider')
     .lean();
 
-  // Score, threshold, sort by similarity, keep the top K.
-  const jobs = candidates
-    .map(job => ({ job, _score: cosineSimilarity(queryVector, job.embedding) }))
-    .filter(x => x._score >= MIN_VECTOR_SCORE)
-    .sort((a, b) => b._score - a._score)
-    .slice(0, VECTOR_TOP_K)
-    .map(x => ({ ...x.job, _score: x._score }));
+  const jobs = topDocs
+    .filter(job => scoreById.has(String(job._id)))
+    .map(job => ({ ...job, _score: scoreById.get(String(job._id)) }))
+    .sort((a, b) => b._score - a._score);
 
-  console.log(`[SKILL SEARCH DB] Scored ${candidates.length} candidates → ${jobs.length} matches (score >= ${MIN_VECTOR_SCORE})`);
+  console.log(`[SKILL SEARCH DB] Scored ${scanned} candidates → ${matches.length} matches (score >= ${MIN_VECTOR_SCORE}), keeping ${jobs.length}`);
 
   const results = [];
   for (const job of jobs) {
