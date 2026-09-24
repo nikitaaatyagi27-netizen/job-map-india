@@ -7,9 +7,7 @@ services:
     plan: free
     region: singapore
     rootDir: server
-    # Downloads the embedding model at build time so it ships with the deploy
-    # instead of re-downloading after every free-tier sleep.
-    buildCommand: npm ci --omit=dev && node -e "require('./utils/embeddingClient').embed('warmup').then(() => process.exit(0))"
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
     envVars:
       - key: WEB_ONLY
@@ -20,6 +18,14 @@ services:
         value: "true"
       - key: NODE_VERSION
         value: "22"
+      # Query embeddings via Cloudflare Workers AI: the local ONNX model needs
+      # more than the free plan's 512 MB. Ingestion (GitHub Actions) stays local.
+      - key: EMBED_PROVIDER
+        value: cloudflare
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: MONGO_URI

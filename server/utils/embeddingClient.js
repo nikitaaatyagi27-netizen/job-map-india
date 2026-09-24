@@ -46,7 +46,58 @@ async function getExtractor() {
  * @returns {Promise<number[]|number[][]>} a single vector for a string input, or an array of vectors (input order preserved) for an array input.
  */
 
+// ─── Hosted option: Cloudflare Workers AI (same bge-base-en-v1.5 weights) ─────
+// Set EMBED_PROVIDER=cloudflare (+ CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN)
+// on small hosts like Render's 512 MB free tier, where loading the ONNX model
+// runs out of memory. Workers AI defaults to MEAN pooling for bge models — the
+// same pooling as the local path — so its vectors are comparable with the job
+// embeddings produced locally by ingestion. (Never pass pooling: "cls" here:
+// CLS vectors are not compatible with the stored mean-pooled ones.)
+const USE_CLOUDFLARE = String(process.env.EMBED_PROVIDER || "").toLowerCase() === "cloudflare";
+const CF_MODEL = "@cf/baai/bge-base-en-v1.5";
+const CF_BATCH = 50;
+
+function normalize(vec) {
+  let norm = 0;
+  for (const v of vec) norm += v * v;
+  norm = Math.sqrt(norm) || 1;
+  return vec.map(v => v / norm);
+}
+
+async function embedWithCloudflare(texts) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !token) {
+    throw new Error("EMBED_PROVIDER=cloudflare needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN");
+  }
+  const axios = require("axios");
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${CF_MODEL}`;
+  const vectors = [];
+  for (let start = 0; start < texts.length; start += CF_BATCH) {
+    const batch = texts.slice(start, start + CF_BATCH);
+    const { data } = await axios.post(
+      url,
+      { text: batch, pooling: "mean" },
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 30000 }
+    );
+    const rows = data?.result?.data;
+    if (!Array.isArray(rows) || rows.length !== batch.length) {
+      throw new Error(`Cloudflare embedding returned ${rows?.length ?? "no"} vectors for ${batch.length} texts`);
+    }
+    for (const row of rows) vectors.push(normalize(row));
+  }
+  return vectors;
+}
+
 async function embed(input, { inputType = "document" } = {}) {
+  if (USE_CLOUDFLARE) {
+    const isBatch = Array.isArray(input);
+    const raw = (isBatch ? input : [input]).map(t => (t || "").toString());
+    const texts = inputType === "query" ? raw.map(t => QUERY_PREFIX + t) : raw;
+    const vectors = await embedWithCloudflare(texts);
+    return isBatch ? vectors : vectors[0];
+  }
+
   const extractor = await getExtractor();
 
   const isBatch = Array.isArray(input);
