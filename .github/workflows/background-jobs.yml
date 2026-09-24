@@ -1,0 +1,89 @@
+# Runs the API's background jobs (ingestion, scraping, embeddings, cleanup) on
+# GitHub's runners, so the web server can stay small (Render free tier, WEB_ONLY=true).
+#
+# Setup: Settings → Secrets and variables → Actions → New repository secret
+#   SERVER_ENV = the full contents of your server/.env (MONGO_URI, API keys, …)
+name: Background jobs
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"   # ingest
+    - cron: "0 1 * * *"      # daily: stale sweep + storage cleanup
+    - cron: "0 3 * * *"      # verify (+ youtube on Sundays)
+    - cron: "0 2 * * 0"      # workday discovery (Sunday)
+    - cron: "0 4 * * 0"      # dead ATS board cleanup (Sunday)
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task to run now
+        type: choice
+        default: bootstrap
+        options: [bootstrap, ingest, daily, verify, youtube, workday, atsCleanup, embeddings]
+
+concurrency:
+  group: background-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    defaults:
+      run:
+        working-directory: server
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: "true"
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci --omit=dev
+
+      # After npm ci (which wipes node_modules): reuse the downloaded embedding model.
+      - uses: actions/cache@v4
+        with:
+          path: server/node_modules/@xenova/transformers/.cache
+          key: xenova-model-${{ hashFiles('server/utils/embeddingClient.js') }}
+
+      - name: Write server/.env
+        env:
+          SERVER_ENV: ${{ secrets.SERVER_ENV }}
+        run: |
+          if [ -z "$SERVER_ENV" ]; then echo "::error::Add the SERVER_ENV repository secret"; exit 1; fi
+          printf '%s\n' "$SERVER_ENV" > .env
+
+      # Ubuntu 24.04 runners block Chrome's sandbox; the scrapers need --no-sandbox.
+      - name: Chrome wrapper
+        run: |
+          printf '#!/bin/sh\nexec /usr/bin/google-chrome --no-sandbox --disable-dev-shm-usage "$@"\n' > "$RUNNER_TEMP/chrome"
+          chmod +x "$RUNNER_TEMP/chrome"
+          echo "CHROME_PATH=$RUNNER_TEMP/chrome" >> "$GITHUB_ENV"
+
+      - name: Pick task
+        id: pick
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 */12 * * *") tasks="ingest" ;;
+            "0 1 * * *")    tasks="daily" ;;
+            "0 3 * * *")    tasks="verify"; [ "$(date -u +%u)" = 7 ] && tasks="verify youtube" ;;
+            "0 2 * * 0")    tasks="workday" ;;
+            "0 4 * * 0")    tasks="atsCleanup" ;;
+            *)              tasks="${{ inputs.task }}" ;;
+          esac
+          echo "tasks=$tasks" >> "$GITHUB_OUTPUT"
+
+      - name: Run ${{ steps.pick.outputs.tasks }}
+        run: |
+          for t in ${{ steps.pick.outputs.tasks }}; do
+            if [ "$t" = embeddings ]; then
+              node --dns-result-order=ipv4first scripts/backfillJobEmbeddings.js
+            else
+              node --dns-result-order=ipv4first index.js --task "$t"
+            fi
+          done

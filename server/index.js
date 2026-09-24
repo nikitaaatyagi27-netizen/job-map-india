@@ -129,47 +129,36 @@ async function runBootstrapTasks() {
   }
 }
 
-async function bootstrap() {
-  await connectDB();
+// ─── Scheduled tasks ───────────────────────────────────────────────────────────
+// Each background job is a named task so it can run either on a cron inside this
+// server (single-machine deploy) or once from the command line:
+//   node index.js --task ingest
+// which is how the GitHub Actions workflow runs them when the web server is
+// deployed with WEB_ONLY=true (e.g. Render's 512 MB free tier).
 
-  const PORT = process.env.PORT || 5000;
+const TASKS = {
+  // Full ingestion (every 12h)
+  async ingest() {
+    await backfillCompanyCoords();
+    await runScheduledIngestion();
+    await runCompanyGrowthCycle("cron");
+    await runDedup();
+  },
 
-  // Listen first — server accepts requests immediately while bootstrap runs in background
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-
-  // Cron: full ingestion every 12 hours
-  cron.schedule("0 */12 * * *", async () => {
-    try {
-      await backfillCompanyCoords();
-      await runScheduledIngestion();
-      await runCompanyGrowthCycle("cron");
-      await runDedup();
-    } catch (error) {
-      console.error("[CRON] Ingestion failed:", error.message);
-    }
-  });
-
-  // Cron: daily staleness sweep + storage cleanup at 1am UTC.
+  // Staleness sweep + storage cleanup (daily 1am UTC).
   // markStaleJobs marks dead jobs inactive; runStorageCleanup then deletes
   // inactive jobs past the grace period (and caps total job count) so the DB
   // can't fill up the free 512 MB tier.
-  cron.schedule("0 1 * * *", async () => {
-    try {
-      await markStaleJobs();
-      await runStorageCleanup();
-    } catch (error) {
-      console.error("[CRON] Staleness sweep / cleanup failed:", error.message);
-    }
-  });
+  async daily() {
+    await markStaleJobs();
+    await runStorageCleanup();
+  },
 
-  // Cron: nightly job verification at 3am UTC.
+  // Job-link verification (nightly 3am UTC).
   //  - runJobVerification checks aggregator jobs (Adzuna/JSearch/etc.) for dead links.
   //  - runNaukriVerification checks Naukri jobs via Naukri's job-detail API, which
-  //    reveals the real expired status (the public job page needs login, so a normal
-  //    dead-link check can't be used — this closes that gap).
-  cron.schedule("0 3 * * *", async () => {
+  //    reveals the real expired status (the public job page needs login).
+  async verify() {
     try {
       const result = await runJobVerification();
       console.log(`[CRON] Job verification done | checked: ${result.checked} | marked inactive: ${result.markedInactive}`);
@@ -182,47 +171,72 @@ async function bootstrap() {
     } catch (error) {
       console.error("[CRON] Naukri verification failed:", error.message);
     }
+  },
+
+  // Weekly YouTube hiring video discovery (Sunday 3am UTC)
+  async youtube() {
+    const result = await runYoutubeHiringDiscovery();
+    console.log(
+      `[CRON] YouTube discovery done | channels ${result.channelsScanned}` +
+      ` | videos ${result.videosScanned} | new sources ${result.newSources}`
+    );
+  },
+
+  // Weekly Workday tenant discovery (Sunday 2am UTC)
+  async workday() {
+    const result = await discoverAndIngestWorkdayBoards();
+    console.log(
+      `[CRON] Workday discovery done | found ${result.candidatesFound} candidates` +
+      ` | ingested ${result.ingestedBoards} boards | new companies ${result.newCompanies}`
+    );
+  },
+
+  // Weekly dead/duplicate ATS board cleanup (Sunday 4am UTC)
+  async atsCleanup() {
+    const result = await cleanupDeadAtsBoards();
+    console.log(`[CRON] ATS cleanup done | removed ${result.removed} dead/duplicate boards`);
+  },
+
+  // Initial data preparation (normally runs on every server start)
+  bootstrap: runBootstrapTasks,
+};
+
+const SCHEDULE = [
+  ["0 */12 * * *", "ingest"],
+  ["0 1 * * *",    "daily"],
+  ["0 3 * * *",    "verify"],
+  ["0 3 * * 0",    "youtube"],
+  ["0 2 * * 0",    "workday"],
+  ["0 4 * * 0",    "atsCleanup"],
+];
+
+async function runTask(name) {
+  try {
+    await TASKS[name]();
+  } catch (error) {
+    console.error(`[CRON] ${name} failed:`, error.message);
+    throw error;
+  }
+}
+
+async function bootstrap() {
+  await connectDB();
+
+  const PORT = process.env.PORT || 5000;
+
+  // Listen first — server accepts requests immediately while bootstrap runs in background
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
   });
 
-  // Cron: weekly YouTube hiring video discovery — Sunday 3am UTC (8:30am IST)
-  cron.schedule("0 3 * * 0", async () => {
-    try {
-      const result = await runYoutubeHiringDiscovery();
-      console.log(
-        `[CRON] YouTube discovery done | channels ${result.channelsScanned}` +
-        ` | videos ${result.videosScanned} | new sources ${result.newSources}`
-      );
-    } catch (error) {
-      console.error("[CRON] YouTube discovery failed:", error.message);
-    }
-  });
+  if (process.env.WEB_ONLY === "true") {
+    console.log("[WEB_ONLY] Cron jobs and bootstrap ingestion disabled; run them with `node index.js --task <name>`.");
+    return;
+  }
 
-  // Cron: weekly Workday tenant discovery — Sunday 2am UTC
-  // Mines GitHub + Serper for new myworkdayjobs.com boards and ingests them.
-  cron.schedule("0 2 * * 0", async () => {
-    try {
-      const result = await discoverAndIngestWorkdayBoards();
-      console.log(
-        `[CRON] Workday discovery done | found ${result.candidatesFound} candidates` +
-        ` | ingested ${result.ingestedBoards} boards | new companies ${result.newCompanies}`
-      );
-    } catch (error) {
-      console.error("[CRON] Workday discovery failed:", error.message);
-    }
-  });
-
-  // Cron: weekly ATS board cleanup — Sunday 4am UTC.
-  // Removes dead (0-India) and duplicate Greenhouse/Lever/Ashby/SmartRecruiters
-  // registrations so they don't accumulate and slow down ingestion. Self-healing
-  // janitor: even if a registration path adds a US-only board, this prunes it.
-  cron.schedule("0 4 * * 0", async () => {
-    try {
-      const result = await cleanupDeadAtsBoards();
-      console.log(`[CRON] ATS cleanup done | removed ${result.removed} dead/duplicate boards`);
-    } catch (error) {
-      console.error("[CRON] ATS cleanup failed:", error.message);
-    }
-  });
+  for (const [expression, name] of SCHEDULE) {
+    cron.schedule(expression, () => runTask(name).catch(() => {}));
+  }
 
   // Bootstrap tasks run after listen — requests are accepted immediately
   runBootstrapTasks().catch(error => {
@@ -230,7 +244,28 @@ async function bootstrap() {
   });
 }
 
-bootstrap().catch(error => {
-  console.error("Server bootstrap failed:", error.message);
-  process.exit(1);
-});
+// One-off mode: `node index.js --task <name>` runs a single task and exits.
+async function runTaskOnce(name) {
+  if (!TASKS[name]) {
+    console.error(`Unknown task "${name}". Available: ${Object.keys(TASKS).join(", ")}`);
+    process.exit(1);
+  }
+  await connectDB();
+  const t0 = Date.now();
+  console.log(`[TASK] ${name} started`);
+  await runTask(name);
+  console.log(`[TASK] ${name} finished in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+}
+
+const taskFlag = process.argv.indexOf("--task");
+
+if (taskFlag !== -1) {
+  runTaskOnce(process.argv[taskFlag + 1])
+    .then(() => process.exit(0))
+    .catch(() => process.exit(1));
+} else {
+  bootstrap().catch(error => {
+    console.error("Server bootstrap failed:", error.message);
+    process.exit(1);
+  });
+}

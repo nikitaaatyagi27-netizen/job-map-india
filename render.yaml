@@ -1,0 +1,32 @@
+# Render Blueprint: the API only (no cron jobs, no Chrome) on the free plan.
+# Background jobs run in .github/workflows/background-jobs.yml instead.
+services:
+  - type: web
+    name: job-map-india-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    # Downloads the embedding model at build time so it ships with the deploy
+    # instead of re-downloading after every free-tier sleep.
+    buildCommand: npm ci --omit=dev && node -e "require('./utils/embeddingClient').embed('warmup').then(() => process.exit(0))"
+    startCommand: npm start
+    envVars:
+      - key: WEB_ONLY
+        value: "true"
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "true"
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGO_URI
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
