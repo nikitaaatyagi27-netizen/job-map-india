@@ -3,7 +3,7 @@
 **Upload your resume, see who is hiring near you.**
 Job Map India reads a resume, works out your skills and experience level, and shows matching jobs on an interactive map of India, grouped by company. It is available as a **web app** and an **Android app**, both backed by the same API.
 
-[**Live web app**](https://job-map-india.vercel.app) · [**Download the Android APK**](https://github.com/nikitaaatyagi27-netizen/job-map-india/releases/latest) · [How it works](#how-it-works) · [Run it locally](#run-it-locally)
+[**Live web app**](https://job-map-india-coral.vercel.app/) · [**Download the Android APK**](https://github.com/nikitaaatyagi27-netizen/job-map-india/releases/latest) · [How it works](#how-it-works) · [Run it locally](#run-it-locally)
 
 <!-- Add screenshots to docs/screenshots/ and uncomment:
 <p align="center">
